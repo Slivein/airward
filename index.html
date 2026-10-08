@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SkyIdle — Airline Tycoon</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app" hidden>
+  <header>
+    <div class="brandbox">
+      <div id="logo"></div>
+      <div><b data-bind="bname"></b><small data-bind="btag"></small></div>
+    </div>
+    <div class="stats">
+      <div class="stat"><label>Cash</label><b data-bind="cash"></b><small data-bind="rate"></small></div>
+      <div class="stat"><label>Fuel</label><b data-bind="fuel"></b><div class="bar"><i data-w="fuelpct"></i></div></div>
+      <div class="stat"><label>CO₂ debt</label><b data-bind="debt"></b><div class="bar"><i class="bad" data-w="debtpct"></i></div></div>
+      <div class="stat"><label>Level <span data-bind="level"></span></label><b data-bind="xp"></b><div class="bar"><i class="good" data-w="xppct"></i></div></div>
+    </div>
+  </header>
+  <nav id="nav"></nav>
+  <main id="view"></main>
+</div>
+<div id="modal" hidden></div>
+<div id="toasts"></div>
+<script src="game.js"></script>
+</body>
+</html>
