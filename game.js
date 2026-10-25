@@ -654,14 +654,19 @@ function bRoutes(){
     <div style="overflow-x:auto"><table><tr><th>Destination</th><th>Distance</th><th>Demand</th><th>Base fare</th><th>Aircraft</th><th></th></tr>${rows}</table></div></div>`;
 }
 
-/* ---------- airport scene (pixel art, 480x320 canvas scaled up) ---------- */
+/* ---------- airport scene (isometric pixel art, 400x250 canvas scaled up) ---------- */
+// Grid is 16x16 tiles: plots gy0-2, walkway gy3, terminal gy4-5, apron/stands gy6-9, taxiway gy10, runway gy11-12.
 const BUILD = Object.keys(UPG).filter(id => id !== 'gates');
 const BCOL = {tank:'#b7bdc8', crew:'#e0a050', term:'#6fa8dc', eng:'#9aa1ad', saf:'#7ccf7a', forest:'#3f9a45', shop:'#e8645f'};
-const MAXSTANDS = 18; // shortcut: only the first 18 stands are drawn, raise if you want bigger airports
-const standPos = i => ({cx: 32 + (i%9)*52, top: 158 + Math.floor(i/9)*46});
+const MAXSTANDS = 16; // shortcut: only the first 16 stands are drawn, raise if you want bigger airports
+const TW = 24, TH = 12, OX = 200, OY = 40, WP = 17;   // tile size, origin, sprite pixels per tile
+const iso = (gx, gy, z = 0) => [OX + (gx-gy)*TW/2, OY + (gx+gy)*TH/2 - z];
+const standC = i => ({wx: 2*(i%8) + 1, wy: 7 + 2*Math.floor(i/8)});
+const bldH = lvl => 6 + 5*Math.min(4, 1 + Math.floor(lvl/3));
 let sel = null;
 let walkers = [], floats = [];
 const PCOL = ['#e8645f','#ffd166','#4be3a3','#8ec5ff','#c79bff','#ffffff'];
+const BACK_TREES = new Set(['0,0','1,2','0,1','14,1','15,0','15,2','14,0','1,0']);
 
 function ensureLayout(){
   G.layout = G.layout || {};
@@ -671,97 +676,140 @@ function ensureLayout(){
     G.layout[id] = p; used.add(p);
   }
 }
-function man(x, px, py, c){ x.fillStyle='#f1c9a0'; x.fillRect(px|0, py|0, 2, 2); x.fillStyle=c; x.fillRect(px|0, (py|0)+2, 2, 3); }
-
-function drawPlane(x, cx, cy, t, col, rot){
-  const L = 12 + t*4, S = 14 + Math.round(t*4.2), fw = t > 4 ? 6 : 4;
-  x.save(); x.translate(Math.round(cx), Math.round(cy)); if(rot) x.rotate(rot);
-  x.fillStyle = 'rgba(0,0,0,.2)'; x.fillRect(-S/2+3, -L/2+4, S, L);
-  x.fillStyle = '#cbd6e8';                                    // swept wings
-  for(let k = 0; k < S/2; k++){ const o = Math.floor(k*0.4); x.fillRect(-fw/2-k-1, o, 1, 3); x.fillRect(fw/2+k, o, 1, 3); }
-  x.fillStyle = '#f4f7fc'; x.fillRect(-fw/2, -L/2, fw, L);   // fuselage
-  x.fillStyle = col; x.fillRect(-fw/2, -L/2+L*0.3, fw, 2);    // livery stripe
-  x.fillRect(-1, L/2-5, 2, 5);                                // tail fin
-  x.fillStyle = '#aab8d0'; x.fillRect(-S*0.18, L/2-3, S*0.36, 2); // tail plane
-  x.fillStyle = '#37577f'; x.fillRect(-1, -L/2+1, 2, 2);      // cockpit
-  x.fillStyle = '#4a5468';
-  if(t === 0) x.fillRect(-3, -L/2-1, 6, 1);                   // propeller
-  else for(const sx of (t === 7 ? [-.32,-.17,.17,.32] : [-.25,.25])) x.fillRect(Math.round(S*sx)-1, 3 + Math.floor(Math.abs(S*sx)*0.4), 2, 4);
-  x.restore();
+function shade(hex, f){
+  const n = parseInt(hex.slice(1), 16);
+  return `rgb(${Math.min(255, (n>>16)*f|0)},${Math.min(255, (n>>8&255)*f|0)},${Math.min(255, (n&255)*f|0)})`;
 }
-function drawBuilding(x, px, py, id, lvl){
-  const fl = Math.min(4, 1 + Math.floor(lvl/3)), h = 8 + fl*5, bx = px+4, by = py+36-h;
-  x.fillStyle='rgba(0,0,0,.2)'; x.fillRect(bx+3, by+3, 28, h);
-  x.fillStyle = BCOL[id]; x.fillRect(bx, by, 28, h);
-  x.fillStyle = 'rgba(0,0,0,.28)'; x.fillRect(bx, by, 28, 4);   // roof
-  x.fillStyle = 'rgba(255,255,255,.55)';
-  for(let r = 0; r < fl; r++) for(let c = 0; c < 4; c++) x.fillRect(bx+3+c*7, by+7+r*5, 3, 2);
-  x.font = '13px serif'; x.textAlign = 'center'; x.fillText(UPG[id].icon, px+18, py+14);
-  x.fillStyle = '#10204a'; x.fillRect(px+22, py+26, 13, 9);
-  x.fillStyle = '#fff'; x.font = 'bold 8px monospace'; x.fillText(lvl, px+28.5, py+34);
+function man(x, px, py, c){ x.fillStyle='#f1c9a0'; x.fillRect(px|0, py|0, 2, 2); x.fillStyle=c; x.fillRect(px|0, (py|0)+2, 2, 3); }
+function poly(x, pts, fill, line){
+  x.beginPath(); pts.forEach(([a,b], i) => i ? x.lineTo(a,b) : x.moveTo(a,b)); x.closePath();
+  if(fill){ x.fillStyle = fill; x.fill(); }
+  if(line){ x.strokeStyle = line; x.lineWidth = 1; x.stroke(); }
+}
+function tile(x, gx, gy, w, d, fill, line, z = 0){ poly(x, [iso(gx,gy,z), iso(gx+w,gy,z), iso(gx+w,gy+d,z), iso(gx,gy+d,z)], fill, line); }
+function box(x, gx, gy, w, d, h, top, left, right){
+  poly(x, [iso(gx+w,gy,0), iso(gx+w,gy+d,0), iso(gx+w,gy+d,h), iso(gx+w,gy,h)], right, 'rgba(0,0,0,.4)');
+  poly(x, [iso(gx,gy+d,0), iso(gx+w,gy+d,0), iso(gx+w,gy+d,h), iso(gx,gy+d,h)], left, 'rgba(0,0,0,.4)');
+  poly(x, [iso(gx,gy,h), iso(gx+w,gy,h), iso(gx+w,gy+d,h), iso(gx,gy+d,h)], top, 'rgba(0,0,0,.3)');
+}
+// run fn in a skewed frame that lies on the front (left-down) face of a box whose bottom-left corner is (gx, gy)
+function onFace(x, gx, gy, fn){ const [X, Y] = iso(gx, gy); x.setTransform(1, .5, 0, 1, X, Y); fn(); x.setTransform(1, 0, 0, 1, 0, 0); }
+
+function drawPlane(x, wx, wy, t, col, rot, z){
+  const L = 14 + t*3.2, S = 16 + Math.round(t*3.4), fw = t > 4 ? 6 : 4, k = TW/(2*WP);
+  const [X, Y] = iso(wx, wy);
+  const spr = mono => {
+    const C = c => mono || c;
+    x.fillStyle = C('#cbd6e8');                                   // swept wings
+    for(let q = 0; q < S/2; q++){ const o = Math.floor(q*0.4); x.fillRect(-fw/2-q-1, o, 1, 3); x.fillRect(fw/2+q, o, 1, 3); }
+    x.fillStyle = C('#f4f7fc'); x.fillRect(-fw/2, -L/2, fw, L);   // fuselage
+    x.fillStyle = C(col); x.fillRect(-fw/2, -L/2+L*0.3, fw, 2);   // livery stripe
+    x.fillStyle = C('#aab8d0'); x.fillRect(-S*0.18, L/2-3, S*0.36, 2); // tail plane
+    x.fillStyle = C('#37577f'); x.fillRect(-1, -L/2+1, 2, 2);     // cockpit
+    x.fillStyle = C('#4a5468');
+    if(t === 0) x.fillRect(-3, -L/2-1, 6, 1);                     // propeller
+    else for(const sx of (t === 7 ? [-.32,-.17,.17,.32] : [-.25,.25])) x.fillRect(Math.round(S*sx)-1, 3 + Math.floor(Math.abs(S*sx)*0.4), 2, 4);
+  };
+  if(z > 0.5){ x.setTransform(k, k/2, -k, k/2, X + z*0.4, Y); x.rotate(rot); spr('rgba(0,0,0,.28)'); }
+  x.setTransform(k, k/2, -k, k/2, X, Y - z); x.rotate(rot); spr(); x.setTransform(1, 0, 0, 1, 0, 0);
+  // tail fin stands up out of the ground plane
+  const lx = -Math.sin(rot)*L/2, ly = Math.cos(rot)*L/2, tx = X + (lx - ly)*k, ty = Y - z + (lx + ly)*k/2, fh = 4 + t*0.9;
+  x.fillStyle = col; x.fillRect(tx-1, ty-fh, 2, fh); x.fillStyle = 'rgba(0,0,0,.35)'; x.fillRect(tx+1, ty-fh, 1, fh);
+}
+function drawBuilding(x, gx, gy, id, lvl){
+  const h = bldH(lvl), fl = Math.min(4, 1 + Math.floor(lvl/3)), b = BCOL[id], night = Math.max(0, Math.sin(G.time/110));
+  box(x, gx+.1, gy+.1, .8, .8, h, shade(b, 1.25), shade(b, 1), shade(b, .68));
+  onFace(x, gx+.1, gy+.9, () => {
+    x.fillStyle = night > .3 ? '#ffe9a0' : 'rgba(255,255,255,.65)';
+    for(let r = 0; r < fl; r++) for(let c = 0; c < 2; c++) x.fillRect(1.5 + c*4.3, -(3.5 + r*5), 3, 2.5);
+    x.fillStyle = '#10204a'; x.fillRect(5.5, -5, 4, 5);
+    x.fillStyle = '#fff'; x.font = 'bold 5px monospace'; x.textAlign = 'center'; x.fillText(lvl, 7.5, -1);
+  });
+  const [X, Y] = iso(gx+.5, gy+.5, h);
+  x.font = '9px serif'; x.textAlign = 'center'; x.fillText(UPG[id].icon, X, Y+3);
+}
+function drawTree(x, gx, gy){
+  const [X, Y] = iso(gx+.5, gy+.5);
+  x.fillStyle = '#6b4a2b'; x.fillRect(X-1, Y-4, 2, 5);
+  poly(x, [[X, Y-17], [X+7, Y-10], [X, Y-3], [X-7, Y-10]], '#2f8a3c', 'rgba(0,0,0,.3)');
+  poly(x, [[X, Y-17], [X+5, Y-12], [X, Y-8], [X-5, Y-12]], '#43a64f');
 }
 
 function drawScene(dt){
   const c = $('#scene'); if(!c) return;
   const x = c.getContext('2d'); x.imageSmoothingEnabled = false; ensureLayout();
-  x.fillStyle = '#5aa84a'; x.fillRect(0, 0, 480, 320);
-  x.fillStyle = '#66b755'; for(let i = 0; i < 260; i++) x.fillRect((i*73)%480, (i*131)%108, 2, 2);
-  x.fillStyle = '#d9cfae'; x.fillRect(0, 108, 480, 12);                 // walkway
-  for(let p = 0; p < 36; p++){                                          // building plots
-    const px = 24 + (p%12)*36, py = 4 + Math.floor(p/12)*36, id = BUILD.find(b => G.layout[b] === p);
-    if(id) drawBuilding(x, px, py, id, G.upg[id]);
-    else { x.fillStyle = 'rgba(255,255,255,.14)'; x.fillRect(px+2, py+2, 32, 32); x.fillStyle = 'rgba(255,255,255,.5)'; x.fillRect(px+16, py+10, 2, 16); x.fillRect(px+10, py+17, 14, 2); }
-    if(sel && (sel.plot === p || (id && sel.bld === id))){ x.strokeStyle = '#ffe36b'; x.lineWidth = 2; x.strokeRect(px+1, py+1, 34, 34); }
+  const night = Math.max(0, Math.sin(G.time/110)) * 0.45, next = gates();
+  x.fillStyle = '#4a8f3f'; x.fillRect(0, 0, 400, 250);
+  for(let gy = 0; gy < 16; gy++) for(let gx = 0; gx < 16; gx++){            // ground tiles
+    const ch = (gx+gy) & 1;
+    const f = gy <= 2 ? (ch ? '#6cc15a' : '#62b650') : gy === 3 ? (ch ? '#dcd2b0' : '#d0c6a4') : gy <= 5 ? '#a9aeb8'
+            : gy <= 9 ? (ch ? '#8e949f' : '#868c97') : gy === 10 ? '#6d737e' : gy <= 12 ? '#3a3e46' : (ch ? '#5aa84a' : '#52a043');
+    tile(x, gx, gy, 1, 1, f, f);
   }
-  x.fillStyle = '#e8eef5'; x.fillRect(0, 120, 480, 32);                 // terminal
-  x.fillStyle = '#3b6ea8'; x.fillRect(0, 120, 480, 6);
-  x.fillStyle = '#2b4a7a'; for(let i = 0; i < 24; i++) x.fillRect(6 + i*20, 130, 14, 8);
-  x.fillStyle = G.brand.color; x.fillRect(200, 124, 80, 20);
-  x.fillStyle = '#06111f'; x.font = 'bold 12px monospace'; x.textAlign = 'center'; x.fillText(G.brand.code, 240, 139);
-  x.fillStyle = '#2b4a7a'; x.fillRect(224, 144, 32, 8);
-  x.fillStyle = '#8a919c'; x.fillRect(0, 152, 480, 102);                // apron
-  x.fillStyle = '#6f7681'; x.fillRect(0, 254, 480, 16);                 // taxiway
-  x.fillStyle = '#f0c34a'; for(let i = 0; i < 24; i++) x.fillRect(i*20+4, 261, 10, 2);
-  x.fillStyle = '#3c4048'; x.fillRect(0, 272, 480, 32);                 // runway
-  x.fillStyle = '#fff'; for(let i = 0; i < 16; i++) x.fillRect(i*30+6, 287, 16, 2);
-  x.fillStyle = '#5aa84a'; x.fillRect(0, 304, 480, 16);
-  const next = gates();
-  for(let i = 0; i < MAXSTANDS; i++){                                   // stands + parked aircraft
-    const {cx, top} = standPos(i);
-    x.strokeStyle = i < next ? '#f0c34a' : 'rgba(255,255,255,.25)'; x.lineWidth = 1;
-    if(i >= next) x.setLineDash([3,3]);
-    x.strokeRect(cx-24.5, top+0.5, 49, 43); x.setLineDash([]);
-    if(i === next){ x.fillStyle = 'rgba(255,255,255,.7)'; x.fillRect(cx-1, top+14, 2, 14); x.fillRect(cx-7, top+20, 14, 2); }
-    const a = G.fleet[i];
-    if(a && a.state !== 'flying'){
-      drawPlane(x, cx, top+22, a.type, G.brand.color, 0);
-      if(a.state === 'turn'){                                           // passengers walk out to the plane
-        const u = a.t/a.dur, noseY = top + 22 - (12 + a.type*4)/2;
-        for(let k = 0; k < 3; k++) man(x, cx-3+k*3, 152 + clamp(u*1.6 - k*0.18, 0, 1)*(noseY-152), PCOL[(i+k)%6]);
+  x.strokeStyle = '#f0c34a'; x.lineWidth = 1; x.setLineDash([3, 3]);        // taxiway line
+  x.beginPath(); x.moveTo(...iso(0, 10.5)); x.lineTo(...iso(16, 10.5)); x.stroke();
+  x.strokeStyle = '#fff'; x.beginPath(); x.moveTo(...iso(0.5, 12)); x.lineTo(...iso(15.5, 12)); x.stroke(); x.setLineDash([]);  // runway centreline
+  for(let i = 0; i < MAXSTANDS; i++){                                         // stand markings
+    const {wx, wy} = standC(i);
+    if(i > next) x.globalAlpha = 0.3;
+    if(i >= next) x.setLineDash([3, 3]);
+    poly(x, [iso(wx-1+.05, wy-1+.05), iso(wx+1-.05, wy-1+.05), iso(wx+1-.05, wy+1-.05), iso(wx-1+.05, wy+1-.05)], i === next ? 'rgba(255,255,255,.12)' : null, i < next ? '#f0c34a' : '#fff');
+    x.setLineDash([]); x.globalAlpha = 1;
+    if(i === next){ const [X, Y] = iso(wx, wy); x.fillStyle = 'rgba(255,255,255,.85)'; x.fillRect(X-1, Y-5, 2, 10); x.fillRect(X-5, Y-1, 10, 2); }
+  }
+  const bAt = {}; BUILD.forEach(id => { bAt[G.layout[id]] = id; });
+  for(let gy = 0; gy <= 2; gy++) for(let gx = 0; gx < 16; gx++){            // landside: plots, buildings, trees
+    if(gx >= 2 && gx <= 13){
+      const p = gy*12 + gx - 2, id = bAt[p];
+      if(id) drawBuilding(x, gx, gy, id, G.upg[id]);
+      else {
+        const [X, Y] = iso(gx+.5, gy+.5);
+        tile(x, gx+.12, gy+.12, .76, .76, 'rgba(255,255,255,.16)', 'rgba(255,255,255,.4)');
+        x.fillStyle = 'rgba(255,255,255,.75)'; x.fillRect(X-1, Y-3, 2, 6); x.fillRect(X-4, Y-1, 8, 2);
       }
+      if(sel && (sel.plot === p || (id && sel.bld === id))){ x.strokeStyle = '#ffe36b'; x.lineWidth = 2; tile(x, gx, gy, 1, 1, null, '#ffe36b', id ? bldH(G.upg[id]) : 0); }
+    } else if(BACK_TREES.has(gx+','+gy)) drawTree(x, gx, gy);
+  }
+  const want = clamp(4 + G.fleet.length*2, 4, 20);                            // ambient passengers on the walkway
+  while(walkers.length < want) walkers.push({x:Math.random()*16, y:3.1+Math.random()*0.7, v:(Math.random()<.5?-1:1)*(0.6+Math.random()*0.9), c:PCOL[walkers.length%6]});
+  walkers.length = want;
+  for(const w of walkers){ w.x = (w.x + w.v*dt + 16) % 16; const [X, Y] = iso(w.x, w.y); man(x, X-1, Y-4, w.c); }
+  box(x, 0, 4, 16, 2, 14, '#dfe7f3', '#b9c7de', '#7f92b3');                  // terminal
+  onFace(x, 0, 6, () => {
+    x.fillStyle = night > .3 ? '#ffe9a0' : '#2b4a7a';
+    for(let i = 0; i < 16; i++) if(i !== 8) x.fillRect(2 + i*12, -7.5, 8, 4);
+    x.fillStyle = '#1d2c4a'; x.fillRect(94, -7, 12, 7);
+    x.fillStyle = G.brand.color; x.fillRect(78, -13.5, 44, 5);
+    x.fillStyle = '#06111f'; x.font = 'bold 5px monospace'; x.textAlign = 'center'; x.fillText(G.brand.code, 100, -9.4);
+  });
+  for(let i = 0; i < MAXSTANDS; i++){                                         // parked aircraft + boarding
+    const {wx, wy} = standC(i), a = G.fleet[i];
+    if(a && a.state !== 'flying'){
+      if(a.state === 'turn'){
+        const u = a.t/a.dur, nose = wy - (14 + a.type*3.2)/(2*WP);
+        for(let k = 0; k < 3; k++){ const q = clamp(u*1.6 - k*0.18, 0, 1), [X, Y] = iso(wx + (k-1)*0.18, 6 + q*(nose-6)); man(x, X-1, Y-5, PCOL[(i+k)%6]); }
+      }
+      drawPlane(x, wx, wy, a.type, G.brand.color, 0, 0);
       const bad = ['grounded','nofuel','noroute'].includes(a.state);
       if(bad || a.state === 'check'){
-        x.fillStyle = bad ? '#ff7b7b' : '#ffd166'; x.fillRect(cx+14, top+2, 11, 11);
-        x.fillStyle = '#10204a'; x.font = 'bold 9px monospace'; x.fillText(bad ? '!' : '*', cx+19.5, top+11);
+        const [X, Y] = iso(wx+.6, wy-.4, 22);
+        x.fillStyle = bad ? '#ff7b7b' : '#ffd166'; x.fillRect(X-5, Y-5, 11, 11);
+        x.fillStyle = '#10204a'; x.font = 'bold 9px monospace'; x.textAlign = 'center'; x.fillText(bad ? '!' : '*', X, Y+4);
       }
     }
-    if(a && sel && sel.ac === a.id){ x.strokeStyle = '#ffe36b'; x.lineWidth = 2; x.strokeRect(cx-24, top+1, 48, 42); }
+    if(a && sel && sel.ac === a.id){ x.lineWidth = 2; tile(x, wx-1, wy-1, 2, 2, null, '#ffe36b'); }
   }
-  for(const a of G.fleet){                                              // take-off and landing on the runway
+  for(const a of G.fleet){                                                    // take-off and landing
     if(a.state !== 'flying') continue;
     const p = a.t/a.dur;
-    if(p < 0.06){ const u = p/0.06; drawPlane(x, 40 + u*u*440, 288, a.type, G.brand.color, Math.PI/2); }
-    else if(p > 0.94){ const u = (p-0.94)/0.06; drawPlane(x, 470 - 300*(1-(1-u)*(1-u)), 288, a.type, G.brand.color, -Math.PI/2); }
+    if(p < 0.06){ const u = p/0.06; drawPlane(x, 1 + u*u*14, 11.6, a.type, G.brand.color, Math.PI/2, u > .55 ? (u-.55)/.45*14 : 0); }
+    else if(p > 0.94){ const u = (p-0.94)/0.06; drawPlane(x, 15 - 10*(1-(1-u)*(1-u)), 12.4, a.type, G.brand.color, -Math.PI/2, (1-u)*12); }
   }
-  const want = clamp(4 + G.fleet.length*2, 4, 20);                      // ambient passengers
-  while(walkers.length < want) walkers.push({x:Math.random()*480, y:110+Math.floor(Math.random()*7), v:(Math.random()<.5?-1:1)*(10+Math.random()*14), c:PCOL[walkers.length%6]});
-  walkers.length = want;
-  for(const w of walkers){ w.x = (w.x + w.v*dt + 480) % 480; man(x, w.x, w.y, w.c); }
-  x.font = 'bold 9px monospace'; x.textAlign = 'center';                // income popups
+  for(let gy = 13; gy < 16; gy++) for(let gx = 0; gx < 16; gx++) if((gx*7 + gy*3) % 5 === 0) drawTree(x, gx, gy);
+  x.font = 'bold 8px monospace'; x.textAlign = 'center';                      // income popups
   floats = floats.filter(f => (f.t += dt) < 1.6);
-  for(const f of floats){ const s = standPos(f.i); x.fillStyle = `rgba(255,227,107,${1 - f.t/1.6})`; x.fillText(f.txt, s.cx, s.top + 6 - f.t*14); }
-  const night = Math.max(0, Math.sin(G.time/110)) * 0.45;               // day / night
-  if(night > 0.02){ x.fillStyle = `rgba(8,14,48,${night})`; x.fillRect(0, 0, 480, 320); }
+  for(const f of floats){ const s = standC(f.i), [X, Y] = iso(s.wx, s.wy, 18); x.fillStyle = `rgba(255,227,107,${1 - f.t/1.6})`; x.fillText(f.txt, X, Y - f.t*14); }
+  if(night > 0.02){ x.fillStyle = `rgba(8,14,48,${night})`; x.fillRect(0, 0, 400, 250); }
 }
 
 function panelHTML(){
@@ -790,24 +838,29 @@ function panelHTML(){
     <div class="row">${costBtn('Add stand', gateCost(), 'upgrade', 'gates')}<span class="muted">Stands: <b data-bind="fleetcount"></b></span></div></div>`;
 }
 function renderPanel(){ const p = $('#apanel'); if(p){ p.innerHTML = panelHTML(); updateUI(); } }
+const tileAt = (px, py) => { const u = (px-OX)/(TW/2), v = (py-OY)/(TH/2); return [Math.floor((u+v)/2), Math.floor((v-u)/2)]; };
 function sceneClick(e){
-  const r = e.target.getBoundingClientRect(), x = (e.clientX-r.left)/r.width*480, y = (e.clientY-r.top)/r.height*320;
+  const r = e.target.getBoundingClientRect(), x = (e.clientX-r.left)/r.width*400, y = (e.clientY-r.top)/r.height*250;
   sel = null;
-  if(y < 108){
-    const c = Math.floor((x-24)/36), rw = Math.floor((y-4)/36);
-    if(c >= 0 && c < 12 && rw >= 0 && rw < 3){ const p = rw*12 + c, bld = BUILD.find(b => G.layout[b] === p); sel = bld ? {bld} : {plot:p}; }
-  } else for(let i = 0; i < MAXSTANDS; i++){
-    const {cx, top} = standPos(i);
-    if(Math.abs(x-cx) < 26 && y >= top && y < top+44){
+  for(const dy of [26, 20, 14, 8, 0]){                                  // buildings are tall: also test the tile behind the click
+    const [gx, gy] = tileAt(x, y+dy);
+    if(gy < 0 || gy > 2 || gx < 2 || gx > 13) continue;
+    const p = gy*12 + gx - 2, bld = BUILD.find(b => G.layout[b] === p);
+    if(bld && bldH(G.upg[bld]) >= dy-2) { sel = {bld}; break; }
+    if(dy === 0) sel = bld ? {bld} : {plot:p};
+  }
+  if(!sel){
+    const [gx, gy] = tileAt(x, y);
+    if(gy >= 6 && gy <= 9 && gx >= 0 && gx <= 15){
+      const i = (gy >= 8 ? 1 : 0)*8 + Math.floor(gx/2);
       if(G.fleet[i]) sel = {ac:G.fleet[i].id};
       else if(i === gates()){ ACT.upgrade('gates'); return; }
-      break;
     }
   }
   renderPanel();
 }
 function bAirport(){
-  return `<div class="card pix"><canvas id="scene" width="480" height="320"></canvas></div><div id="apanel">${panelHTML()}</div>`;
+  return `<div class="card pix"><canvas id="scene" width="400" height="250"></canvas></div><div id="apanel">${panelHTML()}</div>`;
 }
 
 function bFuel(){
