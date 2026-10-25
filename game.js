@@ -42,6 +42,7 @@ const UPG = {
   crew:   {name:'Ground Crew',         icon:'🧑‍🔧', base:6000,  g:2.1,  max:15, desc:'Faster turnarounds between flights.', eff:l=>`${(4*Math.pow(0.9,l)).toFixed(1)}s turnaround`},
   term:   {name:'Terminal & Lounge',   icon:'🏢', base:15000, g:2.3,  max:10, desc:'Better passenger experience raises your brand rating.', eff:l=>`+${l*5} rating`},
   eng:    {name:'Efficient Engines',   icon:'⚙️', base:30000, g:2.6,  max:12, desc:'Retrofit fleet to burn 7% less fuel per level.', eff:l=>`-${Math.round((1-Math.pow(0.93,l))*100)}% fuel burn`},
+  shop:   {name:'Shops & Restaurants', icon:'🛍️', base:12000, g:2.0, max:15, desc:'Duty-free and food courts earn from every passenger.', eff:l=>`+${l*6}% revenue`},
   saf:    {name:'Sustainable Fuel Blend', icon:'🌱', base:25000, g:2.5, max:12, desc:'Cuts CO₂ by 12% per level, fuel costs 2% more per level.', eff:l=>`-${Math.round((1-Math.pow(0.88,l))*100)}% CO₂`},
   forest: {name:'Reforestation Program', icon:'🌳', base:20000, g:2.2, max:15, desc:'Passive carbon removal, works 24/7.', eff:l=>`${(l*0.01).toFixed(2)} t/s offset`},
 };
@@ -88,10 +89,92 @@ function logoSVG(color, code){
   return `<svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="22" fill="${color}"/><path d="M8 27l14-4 8-12 3 1-4 11 9-2 3-4 2 1-2 6 2 6-2 1-3-4-9-2 4 11-3 1-8-12-14-4z" fill="#04101f" opacity=".85" transform="translate(0,-1) scale(.98)"/><text x="24" y="44" font-size="0" fill="#fff">${code}</text></svg>`;
 }
 
+// coarse continent outlines [lon, lat] for the route map
+const LAND = [
+  [[-165,62],[-155,71],[-125,70],[-95,73],[-80,68],[-62,58],[-55,48],[-70,42],[-76,35],[-81,25],[-90,29],[-97,26],[-97,19],[-88,16],[-83,9],[-78,8],[-86,13],[-95,16],[-105,20],[-112,30],[-118,34],[-124,40],[-125,49],[-135,57],[-150,60]],
+  [[-55,60],[-45,60],[-20,70],[-20,82],[-60,82],[-70,76]],
+  [[-78,8],[-62,11],[-50,0],[-35,-6],[-40,-22],[-48,-28],[-58,-38],[-66,-46],[-69,-54],[-74,-50],[-72,-30],[-70,-18],[-81,-5]],
+  [[-10,36],[-9,43],[-2,48],[-5,52],[5,60],[5,63],[20,70],[40,68],[70,73],[100,77],[140,72],[180,68],[180,62],[160,58],[142,52],[135,44],[128,35],[122,40],[121,30],[110,20],[108,12],[100,8],[104,1],[98,8],[93,20],[88,22],[80,12],[77,8],[72,20],[67,25],[57,25],[50,28],[56,17],[45,13],[38,22],[35,31],[27,37],[22,38],[13,38],[8,44],[0,38]],
+  [[-17,21],[-10,35],[10,37],[32,31],[35,28],[43,12],[51,12],[40,-3],[40,-15],[35,-25],[20,-35],[18,-31],[12,-17],[13,-5],[9,4],[-8,4],[-17,14]],
+  [[114,-22],[122,-18],[131,-12],[142,-11],[146,-19],[153,-27],[150,-37],[140,-38],[131,-31],[115,-34]],
+  [[-5,50],[1,51],[-2,56],[-5,58],[-6,55]],
+  [[130,31],[135,34],[141,38],[142,44],[140,41],[133,35]],
+  [[172,-34],[178,-38],[174,-41],[168,-46],[172,-41]],
+  [[95,5],[106,-3],[104,-6],[96,2]],
+  [[109,1],[118,7],[119,0],[114,-4]],
+];
+
+/* ---------- aircraft artwork (side view, nose to the right) ---------- */
+// len/h = fuselage size, fin = tail height, w = wing drop, eng = engine layout
+const PLANE = [
+  {len:100, h:14, fin:20, w:0,  eng:'prop1'},                       // Skylark C9: single-prop, high wing
+  {len:132, h:15, fin:24, w:14, eng:'propwing', n:2, ttail:true},   // Swift T76: twin turboprop
+  {len:152, h:16, fin:26, w:16, eng:'rear', n:2, ttail:true},       // Falcon J120: rear-engined regional jet
+  {len:172, h:18, fin:30, w:19, eng:'under', n:2, er:6},            // Meridian N180
+  {len:190, h:19, fin:32, w:21, eng:'under', n:2, er:7},            // Meridian N240
+  {len:208, h:24, fin:36, w:25, eng:'under', n:2, er:9},            // Atlas W300
+  {len:222, h:25, fin:38, w:27, eng:'under', n:2, er:10},           // Atlas W400
+  {len:228, h:28, fin:40, w:28, eng:'under', n:4, er:8, hump:true}, // Titan S550
+];
+function planeSVG(i, color){
+  const C = PLANE[i], L = C.len, h = C.h, yc = 56, cx = 120;
+  const xr = cx - L/2, xn = cx + L/2, top = yc - h/2, bot = yc + h/2, cid = 'fz'+i+'_'+color.slice(1);
+  const body = `M${xr+L*0.08},${top} L${xn-h*1.3},${top} Q${xn+1},${top+h*0.08} ${xn},${yc+h*0.18} Q${xn-h*0.1},${bot} ${xn-h*1.4},${bot} L${xr+L*0.24},${bot} Q${xr+L*0.08},${bot-h*0.12} ${xr},${top+h*0.2} Z`;
+  let s = `<svg viewBox="${cx-Math.min(240,100+L*0.6)/2} 0 ${Math.min(240,100+L*0.6)} 104" xmlns="http://www.w3.org/2000/svg"><defs><clipPath id="${cid}"><path d="${body}"/></clipPath></defs>`;
+  const wy = yc + h*0.25;
+  // far wing + far engine (behind fuselage)
+  if(C.w){
+    s += `<polygon points="${cx+L*0.04},${wy-2} ${cx-L*0.1},${wy-2} ${cx-L*0.2},${wy-C.w*0.55} ${cx-L*0.12},${wy-C.w*0.55}" fill="#8696b3"/>`;
+  }
+  // tail
+  const fx = xr + L*0.1;
+  s += `<polygon points="${fx+L*0.12},${top+3} ${fx-L*0.07},${top-C.fin} ${fx+L*0.04},${top-C.fin} ${fx+L*0.2},${top+3}" fill="${color}" stroke="#0a1222" stroke-width=".8"/>`;
+  if(C.ttail) s += `<polygon points="${fx-L*0.07},${top-C.fin} ${fx-L*0.07-14},${top-C.fin-3} ${fx+L*0.04-6},${top-C.fin-3} ${fx+L*0.04+5},${top-C.fin}" fill="#aab8d0" stroke="#0a1222" stroke-width=".8"/>`;
+  else s += `<polygon points="${xr+L*0.14},${yc-1} ${xr-8},${yc-h*0.35} ${xr+2},${yc-h*0.35} ${xr+L*0.28},${yc+2}" fill="#aab8d0" stroke="#0a1222" stroke-width=".8"/>`;
+  // rear-mounted engines
+  if(C.eng==='rear') s += `<ellipse cx="${xr+L*0.3}" cy="${top+3}" rx="13" ry="5.5" fill="#7f8da8" stroke="#0a1222" stroke-width=".8"/><rect x="${xr+L*0.3-13}" y="${top-1}" width="4" height="9" rx="2" fill="#2d3a55"/>`;
+  // humpback upper deck
+  if(C.hump) s += `<path d="M${xn-h*3.4},${top} Q${xn-h*3.2},${top-h*0.55} ${xn-h*2.1},${top-h*0.5} L${xn-h*1.5},${top}" fill="#fff" stroke="#9fb0cc" stroke-width=".8"/>`;
+  // fuselage
+  s += `<path d="${body}" fill="#f4f7fc" stroke="#7d90b0" stroke-width="1"/>`;
+  s += `<g clip-path="url(#${cid})"><rect x="${xr}" y="${yc+h*0.12}" width="${L}" height="${h*0.2}" fill="${color}"/><rect x="${xr}" y="${bot-h*0.1}" width="${L}" height="${h*0.2}" fill="#d3dcec"/></g>`;
+  // cockpit + windows
+  s += `<path d="M${xn-h*1.25},${top+1.5} L${xn-h*0.35},${top+1.5} Q${xn-h*0.05},${top+h*0.3} ${xn-h*0.15},${top+h*0.45} L${xn-h*1.15},${top+h*0.45} Z" fill="#37577f"/>`;
+  const wStart = xr + L*0.3, wEnd = xn - h*1.6, step = Math.max(4.2, L/36);
+  for(let x = wStart; x < wEnd; x += step) s += `<circle cx="${x}" cy="${top+h*0.3}" r="${h>20?1.6:1.3}" fill="#4d6a96"/>`;
+  // wing (near)
+  if(C.w){
+    s += `<polygon points="${cx+L*0.08},${wy} ${cx-L*0.12},${wy} ${cx-L*0.27},${wy+C.w} ${cx-L*0.15},${wy+C.w}" fill="#cbd6e8" stroke="#6f83a6" stroke-width="1"/>`;
+  } else {
+    s += `<polygon points="${cx+L*0.08},${top-1} ${cx-L*0.14},${top-1} ${cx-L*0.2},${top-7} ${cx-L*0.02},${top-7}" fill="#cbd6e8" stroke="#6f83a6" stroke-width="1"/><line x1="${cx-L*0.03}" y1="${top-1}" x2="${cx+L*0.02}" y2="${bot-1}" stroke="#6f83a6" stroke-width="1.2"/>`;
+  }
+  // engines
+  if(C.eng==='under'){
+    const ex = [cx-L*0.14]; const ey = [wy + C.w*0.55 + C.er*0.35];
+    if(C.n===4){ ex.push(cx-L*0.2); ey.push(wy + C.w*0.85 + C.er*0.35); }
+    ex.forEach((x,k) => {
+      const er = k ? C.er*0.85 : C.er;
+      s += `<ellipse cx="${x}" cy="${ey[k]}" rx="${er*1.7}" ry="${er*0.8}" fill="${k?'#8d9bb5':'#6f7e9a'}" stroke="#0a1222" stroke-width=".8"/><ellipse cx="${x+er*1.5}" cy="${ey[k]}" rx="${er*0.3}" ry="${er*0.65}" fill="#2d3a55"/>`;
+    });
+    if(C.n===2) s += `<ellipse cx="${cx-L*0.22}" cy="${wy+C.w*0.9}" rx="${C.er*1.4}" ry="${C.er*0.6}" fill="#98a6bf"/>`;
+  }
+  if(C.eng==='propwing'){
+    const ex = cx - L*0.12, ey = wy + C.w*0.45;
+    s += `<rect x="${ex-13}" y="${ey-4}" width="24" height="8" rx="4" fill="#6f7e9a" stroke="#0a1222" stroke-width=".8"/><line x1="${ex+12}" y1="${ey-12}" x2="${ex+12}" y2="${ey+12}" stroke="#222c42" stroke-width="2.2"/>`;
+  }
+  if(C.eng==='prop1'){
+    s += `<ellipse cx="${xn+1}" cy="${yc+1}" rx="3" ry="4" fill="#6f7e9a"/><line x1="${xn+4}" y1="${yc-14}" x2="${xn+4}" y2="${yc+14}" stroke="#222c42" stroke-width="2.4"/>`;
+  }
+  // landing gear
+  s += `<line x1="${cx+L*0.28}" y1="${bot-1}" x2="${cx+L*0.28}" y2="${bot+8}" stroke="#222c42" stroke-width="2"/><circle cx="${cx+L*0.28}" cy="${bot+10}" r="3.4" fill="#222c42"/>`;
+  s += `<line x1="${cx-L*0.06}" y1="${bot-1}" x2="${cx-L*0.06}" y2="${bot+8}" stroke="#222c42" stroke-width="2"/><circle cx="${cx-L*0.06}" cy="${bot+10}" r="3.8" fill="#222c42"/>`;
+  return s + '</svg>';
+}
+
 /* ---------- state ---------- */
 let G = null;
 let dirty = false;      // structure changed, UI should rebuild when safe
-let tab = 'overview';
+let tab = 'airport';
 
 function newGame(brand, prev){
   const hub = AP[brand.hub];
@@ -123,7 +206,7 @@ const co2Mult = () => Math.pow(0.88, G.upg.saf||0);
 const fuelPrice = () => G.fuelMult * (1 + 0.02*(G.upg.saf||0));
 const creditPrice = () => 30 * G.creditMult * (1+G.level*0.03) * (G.evt.carbonUntil > G.time ? 1.5 : 1);
 const allowance = () => 25 + 6*G.level;
-const revMult = () => 1 + 0.05*G.shares;
+const revMult = () => (1 + 0.05*G.shares) * (1 + 0.06*(G.upg.shop||0));
 const demandEvt = () => G.evt.demandUntil > G.time ? 1.25 : 1;
 const xpNeed = l => Math.round(60 * Math.pow(1.55, l-1));
 const autoReq = id => G.ipos > 0 ? 1 : AUTO[id].lvl;
@@ -259,6 +342,7 @@ function land(a){
   const costs = 2*(40 + t.seats*1.6) + 30 + t.seats*0.9;
   const net = rev - costs;
   G.cash += net; G.acc += net; G.lifetime += rev; G.allTime += rev;
+  floats.push({i:G.fleet.indexOf(a), txt:"+"+money(net), t:0}); if(floats.length>12) floats.shift();
   a.earned += net; a.flights++; G.flights++;
   G.lfEma = G.lfEma*0.95 + lf*0.05;
   a.cond = Math.max(0, a.cond - (2 + a.dist/1500));
@@ -424,7 +508,9 @@ function bindVal(key){
     case 'ac': {
       const a = G.fleet.find(z=>z.id==id); if(!a) return '';
       if(x==='st') return stateLabel(a);
-      if(x==='info') return `${a.flights} flights · ${money(a.earned)} earned · condition ${Math.round(a.cond)}%`;
+      if(x==='info') return `${a.flights} flights flown · ${money(a.earned)} earned`;
+      if(x==='cond') return Math.round(a.cond)+'%';
+      if(x==='fl') return a.state==='flying'||a.state==='turn'||a.state==='check' ? fmtT(a.dur-a.t)+' left' : '–';
       if(x==='est'){ const e = a.route ? estimate(TYPES[a.type], a.route, acOnRoute(a.route)) : null; return e ? `~${Math.round(e.lf*100)}% load · ${money(e.profit)}/flight` : ''; }
     }
   }
@@ -475,7 +561,7 @@ function updateUI(){
 }
 
 /* ---------- UI: tabs ---------- */
-const TABS = [['overview','🌍 Overview'],['fleet','✈️ Fleet'],['routes','🗺️ Routes'],['airport','🏢 Airport'],
+const TABS = [['airport','🛫 Airport'],['overview','🌍 Network'],['fleet','✈️ Fleet'],['routes','🗺️ Routes'],
               ['fuel','⛽ Fuel & Carbon'],['auto','🤖 Automation'],['company','🏆 Company']];
 
 function buildNav(){
@@ -513,11 +599,14 @@ function bOverview(){
 }
 
 function bFleet(){
+  const col = G.brand.color;
   const cat = TYPES.map((t,i) => {
     const locked = G.level < t.lvl;
     return `<div class="cat ${locked?'locked':''}">
-      <div><b>${t.name}</b><small>${t.seats} seats · ${fmt(t.range)} km range · ${t.speed} km/s · burns ${t.burn}/km</small></div>
-      ${locked ? `<span class="tag">🔒 Level ${t.lvl}</span>` :
+      <div class="cat-img">${planeSVG(i, col)}</div>
+      <div><b>${t.name}</b>
+        <div class="specs"><span><em>Seats</em> ${t.seats}</span><span><em>Range</em> ${fmt(t.range)} km</span><span><em>Speed</em> ${t.speed} km/s</span><span><em>Fuel</em> ${t.burn}/km</span></div></div>
+      ${locked ? `<span class="tag">🔒 Unlocks at level ${t.lvl}</span>` :
         `<button class="btn pri" data-act="buy" data-arg="${i}" data-cost="${t.cost}" data-gate="1">Buy · ${money(t.cost)}</button>`}
     </div>`;
   }).join('');
@@ -526,26 +615,30 @@ function bFleet(){
     const opts = Object.keys(G.routes).filter(c => routeDist(c) <= t.range && tripFuel(t,c) <= tankCap())
       .map(c => `<option value="${c}" ${a.route===c?'selected':''}>${G.brand.hub} ⇄ ${c} (${fmt(Math.round(routeDist(c)))} km)</option>`).join('');
     return `<div class="ac" data-id="${a.id}" data-state="${a.state}">
-      <div class="row spread"><div><b>${G.brand.code}-${a.id}</b> <span class="muted">${t.name}</span></div><span class="state" data-bind="ac:${a.id}:st"></span></div>
-      <div class="bar"><i data-w="acp:${a.id}"></i></div>
-      <div class="row spread" style="margin-top:8px">
-        <div class="row"><select data-in="route" data-arg="${a.id}"><option value="">— no route —</option>${opts}</select>
-          <span class="muted" data-bind="ac:${a.id}:est"></span></div>
-        <div class="row">
-          <button class="btn sm b-disp" data-act="dispatch" data-arg="${a.id}">Dispatch</button>
-          <button class="btn sm b-check" data-act="check" data-arg="${a.id}">Check · ${money(checkCost(a))}</button>
-          <button class="btn sm danger" data-act="sell" data-arg="${a.id}">Sell ${money(sellValue(a))}</button>
-        </div></div>
-      <div class="bar" style="width:140px"><i class="warn" data-w="acc:${a.id}"></i></div>
-      <div class="muted" data-bind="ac:${a.id}:info"></div>
+      <div class="ac-img">${planeSVG(a.type, col)}</div>
+      <div>
+        <div class="ac-head"><div><span class="ac-name">${G.brand.code}-${a.id}</span><span class="ac-type">${t.name} · ${t.seats} seats</span></div>
+          <span class="chip" data-bind="ac:${a.id}:st"></span></div>
+        <div class="meter"><div class="ml"><span>Flight progress</span><span data-bind="ac:${a.id}:fl"></span></div><div class="bar"><i data-w="acp:${a.id}"></i></div></div>
+        <div class="meter"><div class="ml"><span>Condition</span><b data-bind="ac:${a.id}:cond"></b></div><div class="bar"><i class="good" data-w="acc:${a.id}"></i></div></div>
+        <div class="ac-route row"><select data-in="route" data-arg="${a.id}"><option value="">— choose a route —</option>${opts}</select>
+          <span class="muted small" data-bind="ac:${a.id}:est"></span></div>
+        <div class="ac-actions">
+          <button class="btn sm pri b-disp" data-act="dispatch" data-arg="${a.id}">Dispatch</button>
+          <button class="btn sm b-check" data-act="check" data-arg="${a.id}">Maintenance check · ${money(checkCost(a))}</button>
+          <button class="btn sm danger" data-act="sell" data-arg="${a.id}">Sell · ${money(sellValue(a))}</button>
+        </div>
+        <div class="muted small" style="margin-top:8px" data-bind="ac:${a.id}:info"></div>
+      </div>
     </div>`;
   }).join('');
   return `
-  <div class="card"><div class="row spread"><h3>Your fleet <span class="muted" data-bind="fleetcount"></span></h3>
+  <div class="card"><div class="row spread" style="margin-bottom:12px"><h3 style="margin:0">Your fleet <span class="muted" data-bind="fleetcount"></span></h3>
     <div class="row"><button class="btn" data-act="dispatchAll">Dispatch all</button><button class="btn" data-act="checkAll">Check all</button></div></div>
     ${rows || '<p class="muted">No aircraft yet.</p>'}</div>
   <div class="card"><h3>Aircraft dealer</h3>${cat}</div>`;
 }
+
 
 function bRoutes(){
   const rows = AIRPORTS.filter(a => a.c !== G.brand.hub).map(a => ({a, d:routeDist(a.c)})).sort((x,y)=>x.d-y.d)
@@ -561,14 +654,160 @@ function bRoutes(){
     <div style="overflow-x:auto"><table><tr><th>Destination</th><th>Distance</th><th>Demand</th><th>Base fare</th><th>Aircraft</th><th></th></tr>${rows}</table></div></div>`;
 }
 
+/* ---------- airport scene (pixel art, 480x320 canvas scaled up) ---------- */
+const BUILD = Object.keys(UPG).filter(id => id !== 'gates');
+const BCOL = {tank:'#b7bdc8', crew:'#e0a050', term:'#6fa8dc', eng:'#9aa1ad', saf:'#7ccf7a', forest:'#3f9a45', shop:'#e8645f'};
+const MAXSTANDS = 18; // shortcut: only the first 18 stands are drawn, raise if you want bigger airports
+const standPos = i => ({cx: 32 + (i%9)*52, top: 158 + Math.floor(i/9)*46});
+let sel = null;
+let walkers = [], floats = [];
+const PCOL = ['#e8645f','#ffd166','#4be3a3','#8ec5ff','#c79bff','#ffffff'];
+
+function ensureLayout(){
+  G.layout = G.layout || {};
+  const used = new Set(Object.values(G.layout));
+  for(const id of BUILD) if(G.upg[id] && G.layout[id] == null){
+    let p = 0; while(used.has(p)) p++;
+    G.layout[id] = p; used.add(p);
+  }
+}
+function man(x, px, py, c){ x.fillStyle='#f1c9a0'; x.fillRect(px|0, py|0, 2, 2); x.fillStyle=c; x.fillRect(px|0, (py|0)+2, 2, 3); }
+
+function drawPlane(x, cx, cy, t, col, rot){
+  const L = 12 + t*4, S = 14 + Math.round(t*4.2), fw = t > 4 ? 6 : 4;
+  x.save(); x.translate(Math.round(cx), Math.round(cy)); if(rot) x.rotate(rot);
+  x.fillStyle = 'rgba(0,0,0,.2)'; x.fillRect(-S/2+3, -L/2+4, S, L);
+  x.fillStyle = '#cbd6e8';                                    // swept wings
+  for(let k = 0; k < S/2; k++){ const o = Math.floor(k*0.4); x.fillRect(-fw/2-k-1, o, 1, 3); x.fillRect(fw/2+k, o, 1, 3); }
+  x.fillStyle = '#f4f7fc'; x.fillRect(-fw/2, -L/2, fw, L);   // fuselage
+  x.fillStyle = col; x.fillRect(-fw/2, -L/2+L*0.3, fw, 2);    // livery stripe
+  x.fillRect(-1, L/2-5, 2, 5);                                // tail fin
+  x.fillStyle = '#aab8d0'; x.fillRect(-S*0.18, L/2-3, S*0.36, 2); // tail plane
+  x.fillStyle = '#37577f'; x.fillRect(-1, -L/2+1, 2, 2);      // cockpit
+  x.fillStyle = '#4a5468';
+  if(t === 0) x.fillRect(-3, -L/2-1, 6, 1);                   // propeller
+  else for(const sx of (t === 7 ? [-.32,-.17,.17,.32] : [-.25,.25])) x.fillRect(Math.round(S*sx)-1, 3 + Math.floor(Math.abs(S*sx)*0.4), 2, 4);
+  x.restore();
+}
+function drawBuilding(x, px, py, id, lvl){
+  const fl = Math.min(4, 1 + Math.floor(lvl/3)), h = 8 + fl*5, bx = px+4, by = py+36-h;
+  x.fillStyle='rgba(0,0,0,.2)'; x.fillRect(bx+3, by+3, 28, h);
+  x.fillStyle = BCOL[id]; x.fillRect(bx, by, 28, h);
+  x.fillStyle = 'rgba(0,0,0,.28)'; x.fillRect(bx, by, 28, 4);   // roof
+  x.fillStyle = 'rgba(255,255,255,.55)';
+  for(let r = 0; r < fl; r++) for(let c = 0; c < 4; c++) x.fillRect(bx+3+c*7, by+7+r*5, 3, 2);
+  x.font = '13px serif'; x.textAlign = 'center'; x.fillText(UPG[id].icon, px+18, py+14);
+  x.fillStyle = '#10204a'; x.fillRect(px+22, py+26, 13, 9);
+  x.fillStyle = '#fff'; x.font = 'bold 8px monospace'; x.fillText(lvl, px+28.5, py+34);
+}
+
+function drawScene(dt){
+  const c = $('#scene'); if(!c) return;
+  const x = c.getContext('2d'); x.imageSmoothingEnabled = false; ensureLayout();
+  x.fillStyle = '#5aa84a'; x.fillRect(0, 0, 480, 320);
+  x.fillStyle = '#66b755'; for(let i = 0; i < 260; i++) x.fillRect((i*73)%480, (i*131)%108, 2, 2);
+  x.fillStyle = '#d9cfae'; x.fillRect(0, 108, 480, 12);                 // walkway
+  for(let p = 0; p < 36; p++){                                          // building plots
+    const px = 24 + (p%12)*36, py = 4 + Math.floor(p/12)*36, id = BUILD.find(b => G.layout[b] === p);
+    if(id) drawBuilding(x, px, py, id, G.upg[id]);
+    else { x.fillStyle = 'rgba(255,255,255,.14)'; x.fillRect(px+2, py+2, 32, 32); x.fillStyle = 'rgba(255,255,255,.5)'; x.fillRect(px+16, py+10, 2, 16); x.fillRect(px+10, py+17, 14, 2); }
+    if(sel && (sel.plot === p || (id && sel.bld === id))){ x.strokeStyle = '#ffe36b'; x.lineWidth = 2; x.strokeRect(px+1, py+1, 34, 34); }
+  }
+  x.fillStyle = '#e8eef5'; x.fillRect(0, 120, 480, 32);                 // terminal
+  x.fillStyle = '#3b6ea8'; x.fillRect(0, 120, 480, 6);
+  x.fillStyle = '#2b4a7a'; for(let i = 0; i < 24; i++) x.fillRect(6 + i*20, 130, 14, 8);
+  x.fillStyle = G.brand.color; x.fillRect(200, 124, 80, 20);
+  x.fillStyle = '#06111f'; x.font = 'bold 12px monospace'; x.textAlign = 'center'; x.fillText(G.brand.code, 240, 139);
+  x.fillStyle = '#2b4a7a'; x.fillRect(224, 144, 32, 8);
+  x.fillStyle = '#8a919c'; x.fillRect(0, 152, 480, 102);                // apron
+  x.fillStyle = '#6f7681'; x.fillRect(0, 254, 480, 16);                 // taxiway
+  x.fillStyle = '#f0c34a'; for(let i = 0; i < 24; i++) x.fillRect(i*20+4, 261, 10, 2);
+  x.fillStyle = '#3c4048'; x.fillRect(0, 272, 480, 32);                 // runway
+  x.fillStyle = '#fff'; for(let i = 0; i < 16; i++) x.fillRect(i*30+6, 287, 16, 2);
+  x.fillStyle = '#5aa84a'; x.fillRect(0, 304, 480, 16);
+  const next = gates();
+  for(let i = 0; i < MAXSTANDS; i++){                                   // stands + parked aircraft
+    const {cx, top} = standPos(i);
+    x.strokeStyle = i < next ? '#f0c34a' : 'rgba(255,255,255,.25)'; x.lineWidth = 1;
+    if(i >= next) x.setLineDash([3,3]);
+    x.strokeRect(cx-24.5, top+0.5, 49, 43); x.setLineDash([]);
+    if(i === next){ x.fillStyle = 'rgba(255,255,255,.7)'; x.fillRect(cx-1, top+14, 2, 14); x.fillRect(cx-7, top+20, 14, 2); }
+    const a = G.fleet[i];
+    if(a && a.state !== 'flying'){
+      drawPlane(x, cx, top+22, a.type, G.brand.color, 0);
+      if(a.state === 'turn'){                                           // passengers walk out to the plane
+        const u = a.t/a.dur, noseY = top + 22 - (12 + a.type*4)/2;
+        for(let k = 0; k < 3; k++) man(x, cx-3+k*3, 152 + clamp(u*1.6 - k*0.18, 0, 1)*(noseY-152), PCOL[(i+k)%6]);
+      }
+      const bad = ['grounded','nofuel','noroute'].includes(a.state);
+      if(bad || a.state === 'check'){
+        x.fillStyle = bad ? '#ff7b7b' : '#ffd166'; x.fillRect(cx+14, top+2, 11, 11);
+        x.fillStyle = '#10204a'; x.font = 'bold 9px monospace'; x.fillText(bad ? '!' : '*', cx+19.5, top+11);
+      }
+    }
+    if(a && sel && sel.ac === a.id){ x.strokeStyle = '#ffe36b'; x.lineWidth = 2; x.strokeRect(cx-24, top+1, 48, 42); }
+  }
+  for(const a of G.fleet){                                              // take-off and landing on the runway
+    if(a.state !== 'flying') continue;
+    const p = a.t/a.dur;
+    if(p < 0.06){ const u = p/0.06; drawPlane(x, 40 + u*u*440, 288, a.type, G.brand.color, Math.PI/2); }
+    else if(p > 0.94){ const u = (p-0.94)/0.06; drawPlane(x, 470 - 300*(1-(1-u)*(1-u)), 288, a.type, G.brand.color, -Math.PI/2); }
+  }
+  const want = clamp(4 + G.fleet.length*2, 4, 20);                      // ambient passengers
+  while(walkers.length < want) walkers.push({x:Math.random()*480, y:110+Math.floor(Math.random()*7), v:(Math.random()<.5?-1:1)*(10+Math.random()*14), c:PCOL[walkers.length%6]});
+  walkers.length = want;
+  for(const w of walkers){ w.x = (w.x + w.v*dt + 480) % 480; man(x, w.x, w.y, w.c); }
+  x.font = 'bold 9px monospace'; x.textAlign = 'center';                // income popups
+  floats = floats.filter(f => (f.t += dt) < 1.6);
+  for(const f of floats){ const s = standPos(f.i); x.fillStyle = `rgba(255,227,107,${1 - f.t/1.6})`; x.fillText(f.txt, s.cx, s.top + 6 - f.t*14); }
+  const night = Math.max(0, Math.sin(G.time/110)) * 0.45;               // day / night
+  if(night > 0.02){ x.fillStyle = `rgba(8,14,48,${night})`; x.fillRect(0, 0, 480, 320); }
+}
+
+function panelHTML(){
+  ensureLayout();
+  const s = sel;
+  if(s && s.ac){
+    const a = G.fleet.find(z => z.id == s.ac);
+    if(a) return `<div class="card"><h3>${G.brand.code}-${a.id} · ${TYPES[a.type].name}</h3><p class="muted" data-bind="ac:${a.id}:st"></p>
+      <div class="ac" data-id="${a.id}" data-state="${a.state}" style="display:block;border:0;padding:0;margin:0"><div class="ac-actions" style="margin:0">
+      <button class="btn pri b-disp" data-act="dispatch" data-arg="${a.id}">Dispatch</button>
+      <button class="btn b-check" data-act="check" data-arg="${a.id}">Maintenance · ${money(checkCost(a))}</button></div></div></div>`;
+  }
+  if(s && s.bld){
+    const id = s.bld, U = UPG[id], l = G.upg[id]||0, c = Math.round(U.base*Math.pow(U.g, l));
+    return `<div class="card"><h3>${U.icon} ${U.name} <span class="tag">Lv ${l}/${U.max}</span></h3><p class="muted">${U.desc}</p>
+      <p>Now: <b>${U.eff(l)}</b>${l<U.max ? ` → <b class="good">${U.eff(l+1)}</b>` : ''}</p>
+      ${l >= U.max ? '<span class="tag on">Maxed</span>' : costBtn('Upgrade', c, 'upgrade', id)}</div>`;
+  }
+  if(s && s.plot != null){
+    const free = BUILD.filter(id => G.layout[id] == null);
+    return `<div class="card"><h3>Build on this plot</h3>${free.length ? free.map(id => { const U = UPG[id];
+      return `<div class="cat" style="grid-template-columns:1fr auto"><div><b>${U.icon} ${U.name}</b><div class="muted small">${U.desc}</div></div>${costBtn('Build', U.base, 'place', id)}</div>`;
+    }).join('') : '<p class="muted">Every facility is built. Tap a building to upgrade it.</p>'}</div>`;
+  }
+  return `<div class="card"><h3>Your airport</h3><p class="muted">Tap an empty plot to build a facility, a building to upgrade it, or a plane to manage it. The dashed + stand is your next gate.</p>
+    <div class="row">${costBtn('Add stand', gateCost(), 'upgrade', 'gates')}<span class="muted">Stands: <b data-bind="fleetcount"></b></span></div></div>`;
+}
+function renderPanel(){ const p = $('#apanel'); if(p){ p.innerHTML = panelHTML(); updateUI(); } }
+function sceneClick(e){
+  const r = e.target.getBoundingClientRect(), x = (e.clientX-r.left)/r.width*480, y = (e.clientY-r.top)/r.height*320;
+  sel = null;
+  if(y < 108){
+    const c = Math.floor((x-24)/36), rw = Math.floor((y-4)/36);
+    if(c >= 0 && c < 12 && rw >= 0 && rw < 3){ const p = rw*12 + c, bld = BUILD.find(b => G.layout[b] === p); sel = bld ? {bld} : {plot:p}; }
+  } else for(let i = 0; i < MAXSTANDS; i++){
+    const {cx, top} = standPos(i);
+    if(Math.abs(x-cx) < 26 && y >= top && y < top+44){
+      if(G.fleet[i]) sel = {ac:G.fleet[i].id};
+      else if(i === gates()){ ACT.upgrade('gates'); return; }
+      break;
+    }
+  }
+  renderPanel();
+}
 function bAirport(){
-  const cards = Object.entries(UPG).map(([id,U]) => {
-    const l = G.upg[id]||0, c = Math.round(U.base*Math.pow(U.g,l));
-    return `<div class="card"><h3>${U.icon} ${U.name} <span class="tag">Lv ${l}${U.max<99?'/'+U.max:''}</span></h3>
-      <p class="muted">${U.desc}</p><p>Now: <b>${U.eff(l)}</b>${l<U.max?` → <b class="good">${U.eff(l+1)}</b>`:''}</p>
-      ${l>=U.max ? '<span class="tag on">Maxed</span>' : costBtn('Upgrade', c, 'upgrade', id)}</div>`;
-  }).join('');
-  return `<div class="grid g2">${cards}</div>`;
+  return `<div class="card pix"><canvas id="scene" width="480" height="320"></canvas></div><div id="apanel">${panelHTML()}</div>`;
 }
 
 function bFuel(){
@@ -646,9 +885,16 @@ function drawMap(){
   const {x, W, H} = fit(c);
   const P = a => [(a.lon+180)/360*W, (78-a.lat)/140*H];
   x.clearRect(0,0,W,H);
-  x.strokeStyle='#15233d'; x.lineWidth=1;
+  x.fillStyle='#0f2442'; x.fillRect(0,0,W,H);
+  x.strokeStyle='#17304f'; x.lineWidth=1;
   for(let i=1;i<12;i++){ x.beginPath(); x.moveTo(W*i/12,0); x.lineTo(W*i/12,H); x.stroke(); }
   for(let i=1;i<6;i++){ x.beginPath(); x.moveTo(0,H*i/6); x.lineTo(W,H*i/6); x.stroke(); }
+  x.fillStyle='#24456f'; x.strokeStyle='#3b6396'; x.lineWidth=1;
+  for(const poly of LAND){
+    x.beginPath();
+    poly.forEach(([lo,la],i) => { const px=(lo+180)/360*W, py=(78-la)/140*H; i?x.lineTo(px,py):x.moveTo(px,py); });
+    x.closePath(); x.fill(); x.stroke();
+  }
   const hub = P(hubAp()), col = G.brand.color;
   const ctrl = (p) => [(hub[0]+p[0])/2, Math.min(hub[1],p[1]) - Math.abs(hub[0]-p[0])*0.18 - 10];
   const bez = (p, t) => { const q=ctrl(p), u=1-t; return [u*u*hub[0]+2*u*t*q[0]+t*t*p[0], u*u*hub[1]+2*u*t*q[1]+t*t*p[1]]; };
@@ -670,8 +916,10 @@ function drawMap(){
     const t = pr<0.5 ? pr*2 : 1-(pr-0.5)*2;
     const pt = bez(p,t), pt2 = bez(p, clamp(t+(pr<0.5?0.02:-0.02),0,1));
     const ang = Math.atan2(pt2[1]-pt[1], pt2[0]-pt[0]);
-    x.save(); x.translate(pt[0],pt[1]); x.rotate(ang); x.fillStyle=col; x.strokeStyle='#fff'; x.lineWidth=1;
-    x.beginPath(); x.moveTo(7,0); x.lineTo(-5,-4.5); x.lineTo(-2.5,0); x.lineTo(-5,4.5); x.closePath(); x.fill(); x.stroke(); x.restore();
+    x.save(); x.translate(pt[0],pt[1]); x.rotate(ang); x.scale(1.15,1.15); x.fillStyle=col; x.strokeStyle='#fff'; x.lineWidth=1;
+    x.beginPath(); x.moveTo(10,0); x.lineTo(4,-2); x.lineTo(-2,-9); x.lineTo(-5,-9); x.lineTo(-2,-1.5); x.lineTo(-8,-1); x.lineTo(-10,-4); x.lineTo(-12,-4);
+    x.lineTo(-10,0); x.lineTo(-12,4); x.lineTo(-10,4); x.lineTo(-8,1); x.lineTo(-2,1.5); x.lineTo(-5,9); x.lineTo(-2,9); x.lineTo(4,2); x.closePath();
+    x.fill(); x.stroke(); x.restore();
   }
 }
 function drawSpark(){
@@ -693,6 +941,7 @@ const ACT = {
   dispatchAll: () => G.fleet.forEach(ac => { if(ac.state==='ready') tryDepart(ac); }),
   checkAll: () => G.fleet.forEach(ac => { if(['ready','grounded'].includes(ac.state) && ac.cond<95) startCheck(ac); }),
   sell: a => { const i = G.fleet.findIndex(z=>z.id==a); if(i<0 || G.fleet[i].state==='flying') return; G.cash += sellValue(G.fleet[i]); G.fleet.splice(i,1); build(); },
+  place: a => { if(sel && sel.plot != null && G.layout[a] == null && buyUpgrade(a)){ G.layout[a] = sel.plot; sel = {bld:a}; build(); } },
   openRoute: a => { if(openRoute(a)) build(); },
   upgrade: a => { if(buyUpgrade(a)) build(); },
   fuel: a => buyFuel(+a),
@@ -722,6 +971,7 @@ const INP = {
 const lbl = (el, t) => { const l = $('#lbl-'+el.dataset.in); if(l) l.textContent = t; };
 
 document.addEventListener('click', e => {
+  if(e.target.id === 'scene' && G) return sceneClick(e);
   const t = e.target.closest('[data-act]'); if(!t || !G || t.disabled) return;
   ACT[t.dataset.act](t.dataset.arg); updateUI();
 });
@@ -781,6 +1031,8 @@ function main(){
   } else showSetup();
 
   let last = Date.now(), saveT = 0;
+  let lf = performance.now();
+  (function loop(t){ const dt = Math.min(0.1, (t-lf)/1000); lf = t; if(G && tab === 'airport') drawScene(dt); requestAnimationFrame(loop); })(lf);
   setInterval(() => {
     if(!G) return;
     const now = Date.now(); let dt = (now-last)/1000; last = now;
