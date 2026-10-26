@@ -8,8 +8,8 @@ An idle airline manager. Start a brand, build a pixel-art airport, buy aircraft,
 - **Airport tab:** an isometric airport you lay out yourself. Use the toolbar to switch tools:
   - **Select** — tap a plot to build a facility, a building to upgrade it, or a plane to dispatch/service it.
   - **Stand** — drop a 3x3 parking stand (one per gate slot you own). Plane *n* parks at stand *n*.
-  - **Taxiway** — paint the route from each stand to the runway. A plane with no connected route cannot depart.
-  - **Runway** — lay tiles in a straight line; the longest line is your active runway, 250 m per tile. Bigger aircraft need longer runways, so you must extend it before you can buy them.
+  - **Taxiway** — paint the route from each stand to a runway. A plane with no connected route cannot depart, and taxiways cannot cross a runway.
+  - **Runway** — lay tiles in a straight line. Every line of 2+ tiles is its own runway at 250 m per tile, so you can build several. Bigger aircraft need longer runways. A stand uses the longest runway its taxiways reach, and one runway launches one aircraft at a time, so a second runway clears a departure queue.
   - **Demolish** — remove a tile or stand; tiles refund half.
 - **Early game is manual:** dispatch flights, buy fuel, run maintenance checks and offset carbon yourself.
 - **Automation unlocks by level:** airport operations (3), fuel procurement (5), maintenance (7), carbon offsets (9), network planning (12). They stay unlocked after your first IPO.

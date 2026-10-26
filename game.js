@@ -319,9 +319,14 @@ function tryDepart(a){
   const d = routeDist(a.route);
   if(d > t.range){ a.route=null; a.state='noroute'; return false; }
   a.dist = d;
-  if(RWY[a.type] > runwayLen()){ a.state='shortrwy'; return false; }
-  const si = G.fleet.indexOf(a);
-  if(si < G.stands.length && !taxiPath(si)){ a.state='notaxi'; return false; }
+  const si = G.fleet.indexOf(a), stood = si < G.stands.length;
+  const routes = stood ? taxiRoutes(si) : (longestRunway() ? [{R: longestRunway()}] : []);
+  if(stood && !routes.length){ a.state='notaxi'; return false; }
+  const fits = routes.filter(r => r.R.len*M_TILE >= RWY[a.type]);
+  if(!fits.length){ a.state='shortrwy'; return false; }
+  const use = fits.find(r => rwFree(r.R));                       // longest free runway wins
+  if(!use){ a.state='hold'; return false; }
+  const R = use.R;
   const need = fuelNeed(a);
   if(need > tankCap()){ a.state='nofuel'; a.tooBig = true; return false; }
   a.tooBig = false;
@@ -329,6 +334,8 @@ function tryDepart(a){
   G.fuel -= need;
   const co2 = need * 0.01 * co2Mult();
   G.debt += co2; G.totalCO2 += co2;
+  rwBusy()[R.id] = G.time + 1 + a.type*0.15;   // the runway is occupied while this aircraft rolls
+  a.rw = R.id;
   a.state='flying'; a.t=0; a.dur=2*d/t.speed;
   return true;
 }
@@ -374,7 +381,7 @@ function stepAircraft(a, dt){
         if(a.state==='ready') return;
         break;
       }
-      case 'nofuel': case 'notaxi': case 'shortrwy': { const was=a.state; tryDepart(a); if(a.state===was) return; break; }
+      case 'nofuel': case 'notaxi': case 'shortrwy': case 'hold': { const was=a.state; tryDepart(a); if(a.state===was) return; break; }
       case 'grounded':
         if(autoOn('check')) startCheck(a,true);
         if(a.state==='grounded') return;
@@ -542,7 +549,8 @@ function stateLabel(a){
     case 'turn': return 'Turnaround';
     case 'check': return `A-check in progress · ${fmtT(a.dur-a.t)}`;
     case 'grounded': return 'Grounded — needs maintenance check';
-    case 'notaxi': return 'No taxiway route from this stand to the runway';
+    case 'hold': return 'Holding short — runway busy';
+    case 'notaxi': return 'No taxiway route from this stand to a runway';
     case 'shortrwy': return `Runway too short — needs ${RWY[a.type]} m`;
     case 'nofuel': return a.tooBig ? 'Tank too small for this route — upgrade Fuel Farm' : 'Waiting for fuel';
     case 'noroute': return 'No route assigned';
@@ -668,8 +676,9 @@ function bRoutes(){
 const BUILD = Object.keys(UPG).filter(id => id !== 'gates');
 const BCOL = {tank:'#b7bdc8', crew:'#e0a050', term:'#6fa8dc', eng:'#9aa1ad', saf:'#7ccf7a', forest:'#3f9a45', shop:'#e8645f'};
 const RWY = [500, 750, 1000, 1500, 1750, 2250, 2500, 3000];   // runway metres each aircraft type needs
-const TW = 26, TH = 13, OX = 215, OY = 34, WP = 13, CW = 460, CH = 270;
-const GW = 18, GH = 16, AIR = 6, SS = 3, M_TILE = 250;        // grid, first airside row, stand footprint, metres per runway tile
+const TW = 26, TH = 13, OX = 240, OY = 36, WP = 12, CW = 532, CH = 305;
+const GW = 22, GH = 18, AIR = 4, SS = 3, M_TILE = 250, PLOTS = 12;   // grid, first airside row, stand footprint, metres per runway tile, landside plots
+const MIN_RUN = 2;                                            // tiles before a line counts as a runway
 const DIRS = [[1,0],[-1,0],[0,1],[0,-1]];
 const MODES = [['sel','🖱️ Select'],['stand','🅿️ Stand'],['taxi','🛣️ Taxiway'],['run','🛫 Runway'],['del','⛏️ Demolish']];
 const iso = (gx, gy, z = 0) => [OX + (gx-gy)*TW/2, OY + (gx+gy)*TH/2 - z];
@@ -684,8 +693,8 @@ const tkey = (gx, gy) => gx*100 + gy;
 const unkey = k => [k/100|0, k%100];
 const tType = (gx, gy) => G.tiles[tkey(gx, gy)];
 const inAir = (gx, gy) => gx >= 0 && gx < GW && gy >= AIR && gy < GH;
-const isPlot = (gx, gy) => gy >= 0 && gy <= 2 && gx >= 1 && gx <= 16;
-const plotAt = (gx, gy) => gy*16 + gx - 1;
+const isPlot = (gx, gy) => gy === 0 && gx >= 1 && gx <= PLOTS;
+const plotAt = (gx, gy) => gx - 1;
 const standIdxAt = (gx, gy) => G.stands.findIndex(s => gx >= s.x && gx < s.x+SS && gy >= s.y && gy < s.y+SS);
 const standCtr = i => { const s = G.stands[i]; return s ? [s.x + SS/2, s.y + SS/2] : null; };
 const nTiles = t => Object.values(G.tiles).filter(v => v === t).length;
@@ -693,57 +702,65 @@ const taxiCost = () => Math.round(1200 * (1 + 0.05*nTiles('taxi')));
 const runCost = () => Math.round(7000 * (1 + 0.07*nTiles('run')));
 function invalidate(){ rwCache = undefined; pathCache = {}; }
 
-// Longest straight line of runway tiles in any row; that line is the active runway.
-function longestRunway(){
+// Every straight line of runway tiles is its own runway; a stand uses the best one its taxiways reach.
+function runways(){
   if(rwCache !== undefined) return rwCache;
-  let best = null;
+  const list = [];
   for(let gy = AIR; gy < GH; gy++){
     let run = 0;
     for(let gx = 0; gx <= GW; gx++){
       if(gx < GW && tType(gx, gy) === 'run') run++;
-      else { if(run && (!best || run > best.len)) best = {gy, x0:gx-run, x1:gx-1, len:run}; run = 0; }
+      else { if(run >= MIN_RUN) list.push({gy, x0:gx-run, x1:gx-1, len:run, id:tkey(gx-run, gy)}); run = 0; }
     }
   }
-  return rwCache = best;
+  return rwCache = list;
 }
+const longestRunway = () => runways().reduce((m, R) => !m || R.len > m.len ? R : m, null);
 const runwayLen = () => { const r = longestRunway(); return r ? r.len*M_TILE : 0; };
+const standRunway = i => { const P = taxiPath(i); return P ? P.R : null; };
+const rwBusy = () => G.rwBusy || (G.rwBusy = {});
+const rwFree = R => !R || G.time >= (rwBusy()[R.id] || 0);
 
-// Shortest taxiway route from a stand to the runway threshold; null when the stand is not connected.
-function taxiPath(i){
+// Taxi route from a stand to every runway it can reach, longest runway first.
+function taxiRoutes(i){
   if(i in pathCache) return pathCache[i];
-  const s = G.stands[i], R = longestRunway();
-  if(!s || !R) return pathCache[i] = null;
-  const goals = new Set();
-  for(let gx = R.x0; gx <= R.x1; gx++) for(const [dx, dy] of DIRS){
-    const nx = gx+dx, ny = R.gy+dy;
-    if(inAir(nx, ny) && tType(nx, ny) === 'taxi') goals.add(tkey(nx, ny));
-  }
+  const s = G.stands[i], RS = runways();
+  if(!s || !RS.length) return pathCache[i] = [];
   const prev = new Map(), q = [];
   for(let gx = s.x-1; gx <= s.x+SS; gx++) for(let gy = s.y-1; gy <= s.y+SS; gy++){
     const ox = gx < s.x || gx >= s.x+SS, oy = gy < s.y || gy >= s.y+SS;
     if(ox === oy || !inAir(gx, gy) || tType(gx, gy) !== 'taxi') continue;   // edge neighbours only, no corners
     const k = tkey(gx, gy); if(!prev.has(k)){ prev.set(k, null); q.push(k); }
   }
-  let goal = null;
-  for(let h = 0; h < q.length && goal === null; h++){
-    const k = q[h];
-    if(goals.has(k)){ goal = k; break; }
-    const [gx, gy] = unkey(k);
+  for(let h = 0; h < q.length; h++){                              // flood every taxiway reachable from this stand
+    const [gx, gy] = unkey(q[h]);
     for(const [dx, dy] of DIRS){
       const nx = gx+dx, ny = gy+dy, nk = tkey(nx, ny);
       if(prev.has(nk) || !inAir(nx, ny) || tType(nx, ny) !== 'taxi') continue;
-      prev.set(nk, k); q.push(nk);
+      prev.set(nk, q[h]); q.push(nk);
     }
   }
-  if(goal === null) return pathCache[i] = null;
-  const pts = [];
-  for(let k = goal; k != null; k = prev.get(k)){ const [gx, gy] = unkey(k); pts.unshift([gx+.5, gy+.5]); }
-  pts.unshift(standCtr(i));
-  const [ggx, ggy] = unkey(goal), ex = ggy === R.gy ? (ggx < R.x0 ? R.x0 : R.x1) : ggx;
-  pts.push([ex+.5, R.gy+.5]);                                   // roll onto the runway...
-  if(ex !== R.x0) pts.push([R.x0+.5, R.gy+.5]);                 // ...and backtrack to the threshold
-  return pathCache[i] = {pts, R};
+  const out = [];
+  for(const R of RS){
+    let goal = null;
+    for(let gx = R.x0; gx <= R.x1 && goal === null; gx++) for(const [dx, dy] of DIRS){
+      const k = tkey(gx+dx, R.gy+dy);
+      if(prev.has(k)){ goal = k; break; }
+    }
+    if(goal === null) continue;
+    const pts = [];
+    for(let k = goal; k != null; k = prev.get(k)){ const [gx, gy] = unkey(k); pts.unshift([gx+.5, gy+.5]); }
+    pts.unshift(standCtr(i));
+    const [ggx, ggy] = unkey(goal), ex = ggy === R.gy ? (ggx < R.x0 ? R.x0 : R.x1) : ggx;
+    pts.push([ex+.5, R.gy+.5]);                                 // roll onto the runway...
+    if(ex !== R.x0) pts.push([R.x0+.5, R.gy+.5]);               // ...and backtrack to the threshold
+    out.push({pts, R});
+  }
+  out.sort((a, b) => b.R.len - a.R.len);
+  return pathCache[i] = out;
 }
+const taxiPath = i => taxiRoutes(i)[0] || null;
+const routeFor = (i, id) => taxiRoutes(i).find(r => r.R.id === id) || taxiPath(i);
 // Position and heading a fraction f along a polyline, in grid coordinates.
 function walkPath(pts, f){
   const seg = []; let tot = 0;
@@ -758,7 +775,8 @@ function walkPath(pts, f){
 }
 
 function ensureAirport(){
-  G.layout = G.layout || {};
+  G.layout = G.layout || {}; G.rwBusy = G.rwBusy || {};
+  if(Object.values(G.layout).some(p => p >= PLOTS)) G.layout = {};   // plots moved to a single row
   const used = new Set(Object.values(G.layout));
   for(const id of BUILD) if(G.upg[id] && G.layout[id] == null){
     let p = 0; while(used.has(p)) p++;
@@ -769,13 +787,20 @@ function ensureAirport(){
 // Starter airside: a stand row, a taxi lane, a link and a short runway. Also migrates pre-airside saves.
 function seedAirport(){
   G.tiles = {}; G.stands = [];
-  const want = clamp(G.fleet.length || 1, 1, Math.min(gates(), 10));
-  for(let i = 0; i < want; i++) G.stands.push({x: 1 + (i%5)*3, y: i < 5 ? 6 : 10});
-  for(let gx = 1; gx <= 16; gx++) G.tiles[tkey(gx, 9)] = 'taxi';
-  for(let gy = 10; gy <= 13; gy++) G.tiles[tkey(16, gy)] = 'taxi';
+  const want = clamp(G.fleet.length || 1, 1, Math.min(gates(), 13));
+  const rowA = Math.min(want, 7), rowB = Math.max(0, want - 7);
+  for(let i = 0; i < rowA; i++) G.stands.push({x: 1 + i*3, y: 4});
+  for(let i = 0; i < rowB; i++) G.stands.push({x: 1 + i*3, y: 8});
+  const maxx = rowB ? GW-1 : Math.min(GW-1, 1 + rowA*3);
+  for(let gx = 0; gx <= maxx; gx++) G.tiles[tkey(gx, 7)] = 'taxi';
+  if(rowB){
+    for(let gx = 0; gx <= maxx; gx++) G.tiles[tkey(gx, 11)] = 'taxi';
+    for(let gy = 8; gy <= 10; gy++) G.tiles[tkey(GW-1, gy)] = 'taxi';
+  }
+  for(let gy = (rowB ? 11 : 7) + 1; gy <= 13; gy++) G.tiles[tkey(0, gy)] = 'taxi';
   const need = G.fleet.reduce((m, a) => Math.max(m, RWY[a.type]), 500);
-  const len = clamp(Math.ceil(need/M_TILE), 3, 16);
-  for(let gx = 17-len; gx <= 16; gx++) G.tiles[tkey(gx, 14)] = 'run';
+  const len = clamp(Math.ceil(need/M_TILE), 3, GW);
+  for(let gx = 0; gx < len; gx++) G.tiles[tkey(gx, 14)] = 'run';
   invalidate();
 }
 
@@ -867,7 +892,7 @@ function drawTree(x, gx, gy){
 
 const OUT = 0.14, IN = 0.14;   // share of a flight spent taxiing/rolling at each end
 function drawFlying(x, a, i, col){
-  const p = a.t/a.dur, P = taxiPath(i);
+  const p = a.t/a.dur, P = routeFor(i, a.rw);
   if(!P){ return; }
   const R = P.R;
   if(p < OUT){
@@ -886,15 +911,15 @@ function drawFlying(x, a, i, col){
 function drawScene(dt){
   const c = $('#scene'); if(!c) return;
   const x = c.getContext('2d'); x.imageSmoothingEnabled = false; ensureAirport();
-  const night = Math.max(0, Math.sin(G.time/110)) * 0.45, col = G.brand.color, R = longestRunway();
+  const night = Math.max(0, Math.sin(G.time/110)) * 0.45, col = G.brand.color, RS = runways();
   const painting = mode === 'taxi' || mode === 'run' || mode === 'stand';
   x.fillStyle = '#4a8f3f'; x.fillRect(0, 0, CW, CH);
   for(let gy = 0; gy < GH; gy++) for(let gx = 0; gx < GW; gx++){
     const ch = (gx+gy) & 1;
     let f;
-    if(gy <= 2) f = ch ? '#6cc15a' : '#62b650';
-    else if(gy === 3) f = ch ? '#dcd2b0' : '#d0c6a4';
-    else if(gy <= 5) f = '#a9aeb8';
+    if(gy === 0) f = ch ? '#6cc15a' : '#62b650';
+    else if(gy === 1) f = ch ? '#dcd2b0' : '#d0c6a4';
+    else if(gy < AIR) f = '#a9aeb8';
     else {
       const t = tType(gx, gy);
       f = t === 'run' ? (ch ? '#3d424a' : '#363b42') : t === 'taxi' ? (ch ? '#767c87' : '#6e747f')
@@ -904,9 +929,13 @@ function drawScene(dt){
     if(painting && inAir(gx, gy) && !tType(gx, gy) && standIdxAt(gx, gy) < 0) tile(x, gx+.1, gy+.1, .8, .8, 'rgba(255,255,255,.14)', 'rgba(255,255,255,.3)');
     if(gy >= AIR && tType(gx, gy) === 'taxi'){ const [X, Y] = iso(gx+.5, gy+.5); x.fillStyle = '#f0c34a'; x.fillRect(X-4, Y-1, 8, 2); }
   }
-  if(R){                                                                  // runway centreline + thresholds
+  for(const R of RS){                                                     // centreline, thresholds and length label
     for(let gx = R.x0; gx <= R.x1; gx++){ const [X, Y] = iso(gx+.5, R.gy+.5); x.fillStyle = '#fff'; x.fillRect(X-5, Y-1, 10, 2); }
     for(const gx of [R.x0, R.x1]) for(let k = -1; k <= 1; k++){ const [X, Y] = iso(gx+.5, R.gy+.5); x.fillStyle = '#e8eef5'; x.fillRect(X-9, Y-4+k*4, 4, 2); }
+    const [LX, LY] = iso(R.x0+.5, R.gy+.5);
+    x.fillStyle = 'rgba(255,255,255,.8)'; x.font = 'bold 7px monospace'; x.textAlign = 'center';
+    x.fillText(R.len*M_TILE + 'm', LX - 16, LY + 10);
+    if(sel && sel.rwy === R.id){ x.lineWidth = 2; tile(x, R.x0, R.gy, R.len, 1, null, '#ffe36b'); }
   }
   for(let i = 0; i < G.stands.length; i++){                               // stand outlines
     const s = G.stands[i], [X, Y] = iso(s.x+SS/2, s.y+SS/2);
@@ -914,7 +943,7 @@ function drawScene(dt){
     x.fillStyle = 'rgba(255,255,255,.45)'; x.font = 'bold 7px monospace'; x.textAlign = 'center'; x.fillText(i+1, X, Y+16);
   }
   const bAt = {}; BUILD.forEach(id => { bAt[G.layout[id]] = id; });
-  for(let gy = 0; gy <= 2; gy++) for(let gx = 0; gx < GW; gx++){          // landside plots and trees
+  for(let gy = 0; gy <= 1; gy++) for(let gx = 0; gx < GW; gx++){          // landside plots and trees
     if(isPlot(gx, gy)){
       const p = plotAt(gx, gy), id = bAt[p];
       if(id) drawBuilding(x, gx, gy, id, G.upg[id]);
@@ -924,19 +953,19 @@ function drawScene(dt){
         x.fillStyle = 'rgba(255,255,255,.75)'; x.fillRect(X-1, Y-3, 2, 6); x.fillRect(X-4, Y-1, 8, 2);
       }
       if(sel && (sel.plot === p || (id && sel.bld === id))){ x.lineWidth = 2; tile(x, gx, gy, 1, 1, null, '#ffe36b', id ? bldH(G.upg[id]) : 0); }
-    } else if((gx*5 + gy*3) % 4 === 0) drawTree(x, gx, gy);
+    } else if(gy === 0 && (gx*5) % 3 === 0) drawTree(x, gx, gy);
   }
   const want = clamp(4 + G.fleet.length*2, 4, 20);                        // ambient passengers on the walkway
-  while(walkers.length < want) walkers.push({x:Math.random()*GW, y:3.1+Math.random()*0.7, v:(Math.random()<.5?-1:1)*(0.6+Math.random()*0.9), c:PCOL[walkers.length%6]});
+  while(walkers.length < want) walkers.push({x:Math.random()*GW, y:1.1+Math.random()*0.7, v:(Math.random()<.5?-1:1)*(0.6+Math.random()*0.9), c:PCOL[walkers.length%6]});
   walkers.length = want;
   for(const w of walkers){ w.x = (w.x + w.v*dt + GW) % GW; const [X, Y] = iso(w.x, w.y); man(x, X-1, Y-4, w.c); }
-  box(x, 0, 4, GW, 2, 14, '#dfe7f3', '#b9c7de', '#7f92b3');               // terminal
-  onFace(x, 0, 6, () => {
+  box(x, 0, 2, GW, 2, 14, '#dfe7f3', '#b9c7de', '#7f92b3');               // terminal
+  onFace(x, 0, AIR, () => {
     x.fillStyle = night > .3 ? '#ffe9a0' : '#2b4a7a';
-    for(let i = 0; i < 18; i++) if(i !== 8 && i !== 9) x.fillRect(3 + i*13, -7.5, 8, 4);
-    x.fillStyle = '#1d2c4a'; x.fillRect(107, -7, 14, 7);
-    x.fillStyle = G.brand.color; x.fillRect(94, -13.5, 46, 5);
-    x.fillStyle = '#06111f'; x.font = 'bold 5px monospace'; x.textAlign = 'center'; x.fillText(G.brand.code, 117, -9.4);
+    for(let i = 0; i < GW; i++) if(i !== 10 && i !== 11) x.fillRect(3 + i*13, -7.5, 8, 4);
+    x.fillStyle = '#1d2c4a'; x.fillRect(133, -7, 14, 7);
+    x.fillStyle = G.brand.color; x.fillRect(120, -13.5, 46, 5);
+    x.fillStyle = '#06111f'; x.font = 'bold 5px monospace'; x.textAlign = 'center'; x.fillText(G.brand.code, 143, -9.4);
   });
   for(let i = 0; i < G.stands.length; i++){                               // parked aircraft and boarding
     const a = G.fleet[i], ctr = standCtr(i);
@@ -944,21 +973,20 @@ function drawScene(dt){
     if(a.state === 'flying'){ drawFlying(x, a, i, col); continue; }
     if(a.state === 'turn'){
       const u = a.t/a.dur, nose = ctr[1] - (14 + a.type*3.2)/(2*WP);
-      for(let k = 0; k < 3; k++){ const q = clamp(u*1.6 - k*0.18, 0, 1), [X, Y] = iso(ctr[0] + (k-1)*0.22, 6 + q*(nose-6)); man(x, X-1, Y-5, PCOL[(i+k)%6]); }
+      for(let k = 0; k < 3; k++){ const q = clamp(u*1.6 - k*0.18, 0, 1), [X, Y] = iso(ctr[0] + (k-1)*0.22, AIR + q*(nose-AIR)); man(x, X-1, Y-5, PCOL[(i+k)%6]); }
     }
     drawPlane(x, ctr[0], ctr[1], a.type, col, 0, 0);
     const bad = ['grounded','nofuel','noroute','notaxi','shortrwy'].includes(a.state);
-    if(bad || a.state === 'check'){
+    if(bad || a.state === 'check' || a.state === 'hold'){
       const [X, Y] = iso(ctr[0]+1, ctr[1]-1, 24);
       x.fillStyle = bad ? '#ff7b7b' : '#ffd166'; x.fillRect(X-6, Y-6, 13, 13);
-      x.fillStyle = '#10204a'; x.font = 'bold 10px monospace'; x.textAlign = 'center'; x.fillText(bad ? '!' : '*', X, Y+4);
+      x.fillStyle = '#10204a'; x.font = 'bold 10px monospace'; x.textAlign = 'center'; x.fillText(bad ? '!' : a.state === 'hold' ? 'H' : '*', X, Y+4);
     }
     if(sel && sel.ac === a.id){ x.lineWidth = 2; tile(x, G.stands[i].x, G.stands[i].y, SS, SS, null, '#ffe36b'); }
   }
   for(let i = G.stands.length; i < G.fleet.length; i++){                  // aircraft with no stand still fly the runway
     if(G.fleet[i].state === 'flying') drawFlying(x, G.fleet[i], i, col);
   }
-  for(let gy = GH-2; gy < GH; gy++) for(let gx = 0; gx < GW; gx++) if((gx*7 + gy*3) % 5 === 0 && !tType(gx, gy) && standIdxAt(gx, gy) < 0) drawTree(x, gx, gy);
   x.font = 'bold 8px monospace'; x.textAlign = 'center';                  // income popups
   floats = floats.filter(f => (f.t += dt) < 1.6);
   for(const f of floats){ const ctr = standCtr(f.i); if(!ctr) continue; const [X, Y] = iso(ctr[0], ctr[1], 20); x.fillStyle = `rgba(255,227,107,${1 - f.t/1.6})`; x.fillText(f.txt, X, Y - f.t*14); }
@@ -1003,18 +1031,23 @@ function sceneClick(e){
     const [gx, gy] = pick(px, py), i = standIdxAt(gx, gy);
     if(i >= 0 && G.fleet[i]) sel = {ac:G.fleet[i].id};
     else if(i >= 0) sel = {stand:i};
+    else if(tType(gx, gy) === 'run'){ const R = runways().find(z => z.gy === gy && gx >= z.x0 && gx <= z.x1); if(R) sel = {rwy:R.id}; }
   }
   renderPanel();
 }
 
-function fitsRunway(){ const m = runwayLen(); return TYPES.filter((t, i) => RWY[i] <= m).pop(); }
+function fitsRunway(m = runwayLen()){ return TYPES.filter((t, i) => RWY[i] <= m).pop(); }
+function rwyList(){
+  const RS = runways().slice().sort((a, b) => b.len - a.len);
+  if(!RS.length) return '<b class="bad">No runway yet</b> — lay at least 2 runway tiles in a line.';
+  return RS.map(R => { const f = fitsRunway(R.len*M_TILE); return `<span class="tag">${R.len*M_TILE} m · ${f ? f.name : 'too short for any aircraft'}</span>`; }).join(' ');
+}
 function modeHelp(){
-  const R = longestRunway(), big = fitsRunway();
-  const info = `<p><b>Runway ${runwayLen()} m</b> (${R ? R.len : 0} tiles) · largest aircraft it takes: <b>${big ? big.name : 'none'}</b></p>`;
+  const info = `<p>Runways (${runways().length}): ${rwyList()}</p>`;
   if(mode === 'sel') return info + '<p class="muted">Tap a plot, a building, a stand or a plane. Switch tools above to build your airside.</p>';
   if(mode === 'stand') return info + `<p class="muted">Tap the airside to drop a ${SS}x${SS} stand. Stands used: <b>${G.stands.length}/${gates()}</b>. Each plane parks at the stand with its own number.</p>`;
-  if(mode === 'taxi') return info + `<p class="muted">Paint a taxiway from every stand to the runway — a plane cannot depart without a connected route. <b>${money(taxiCost())}</b> per tile.</p>`;
-  if(mode === 'run') return info + `<p class="muted">Lay runway tiles in a straight line; the longest line is your active runway. Each tile is ${M_TILE} m. <b>${money(runCost())}</b> per tile.</p>`;
+  if(mode === 'taxi') return info + `<p class="muted">Paint a taxiway from every stand to a runway — a plane cannot depart without a connected route, and taxiways cannot cross a runway, so route around it. <b>${money(taxiCost())}</b> per tile.</p>`;
+  if(mode === 'run') return info + `<p class="muted">Each straight line of ${MIN_RUN}+ tiles is its own runway, ${M_TILE} m per tile. A stand uses the longest runway its taxiways reach, and one runway launches one aircraft at a time — build a second to clear a queue. <b>${money(runCost())}</b> per tile.</p>`;
   return info + '<p class="muted">Tap a tile or stand to remove it. Tiles refund half their cost.</p>';
 }
 
@@ -1041,7 +1074,17 @@ function panelHTML(){
       return `<div class="cat" style="grid-template-columns:1fr auto"><div><b>${U.icon} ${U.name}</b><div class="muted small">${U.desc}</div></div>${costBtn('Build', U.base, 'place', id)}</div>`;
     }).join('') : '<p class="muted">Every facility is built. Tap a building to upgrade it.</p>'}</div>`;
   }
-  if(s && s.stand != null) return `<div class="card"><h3>Stand ${s.stand+1}</h3><p class="muted">Empty — buy an aircraft on the Fleet tab and it will park here.</p>${taxiPath(s.stand) ? '<span class="tag on">Connected to the runway</span>' : '<span class="tag">⚠ No taxiway route to the runway</span>'}</div>`;
+  if(s && s.rwy != null){
+    const R = runways().find(z => z.id === s.rwy);
+    if(R){ const f = fitsRunway(R.len*M_TILE);
+      return `<div class="card"><h3>🛫 Runway ${R.len*M_TILE} m</h3><p>${R.len} tiles · takes up to <b>${f ? f.name : 'nothing yet'}</b></p>
+        <p class="muted">Stands that can reach it: <b>${G.stands.filter((z, i) => taxiRoutes(i).some(r => r.R.id === R.id)).length}</b>. Extend it with the Runway tool, or build another to spread the traffic.</p></div>`; }
+  }
+  if(s && s.stand != null){
+    const R = standRunway(s.stand);
+    return `<div class="card"><h3>Stand ${s.stand+1}</h3><p class="muted">Empty — buy an aircraft on the Fleet tab and it will park here.</p>
+      ${R ? `<span class="tag on">Uses the ${R.len*M_TILE} m runway</span>` : '<span class="tag">⚠ No taxiway route to a runway</span>'}</div>`;
+  }
   return `<div class="card"><h3>Your airport</h3>${modeHelp()}
     <div class="row">${costBtn('Buy gate slot', gateCost(), 'upgrade', 'gates')}<span class="muted">Aircraft: <b data-bind="fleetcount"></b></span></div></div>`;
 }
