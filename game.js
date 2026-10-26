@@ -700,6 +700,7 @@ const standCtr = i => { const s = G.stands[i]; return s ? [s.x + SS/2, s.y + SS/
 const nTiles = t => Object.values(G.tiles).filter(v => v === t).length;
 const taxiCost = () => Math.round(1200 * (1 + 0.05*nTiles('taxi')));
 const runCost = () => Math.round(7000 * (1 + 0.07*nTiles('run')));
+const layCost = (n, base, g) => { let c = 0; for(let k = 0; k < n; k++) c += Math.round(base*(1 + g*k)); return c; };
 function invalidate(){ rwCache = undefined; pathCache = {}; }
 
 // Every straight line of runway tiles is its own runway; a stand uses the best one its taxiways reach.
@@ -774,6 +775,19 @@ function walkPath(pts, f){
   }
 }
 
+// Clears the airside and lays the standard layout for the current fleet. Charged in full and never
+// refunded, so it can't be looped against demolition refunds for free cash.
+function reseedAirport(confirmFn){
+  const old = {tiles: G.tiles, stands: G.stands};
+  seedAirport();
+  const fee = layCost(nTiles('taxi'), 1200, 0.05) + layCost(nTiles('run'), 7000, 0.07);
+  const undo = () => { G.tiles = old.tiles; G.stands = old.stands; invalidate(); };
+  if(G.cash < fee){ undo(); toast(`Rebuilding costs ${money(fee)} — not enough cash.`); return false; }
+  if(confirmFn && !confirmFn(fee)){ undo(); return false; }
+  G.cash -= fee; sel = null;
+  logMsg(`🏗️ Airport rebuilt on the standard layout for ${money(fee)}.`);
+  return true;
+}
 function ensureAirport(){
   G.layout = G.layout || {}; G.rwBusy = G.rwBusy || {};
   if(Object.values(G.layout).some(p => p >= PLOTS)) G.layout = {};   // plots moved to a single row
@@ -1086,7 +1100,9 @@ function panelHTML(){
       ${R ? `<span class="tag on">Uses the ${R.len*M_TILE} m runway</span>` : '<span class="tag">⚠ No taxiway route to a runway</span>'}</div>`;
   }
   return `<div class="card"><h3>Your airport</h3>${modeHelp()}
-    <div class="row">${costBtn('Buy gate slot', gateCost(), 'upgrade', 'gates')}<span class="muted">Aircraft: <b data-bind="fleetcount"></b></span></div></div>`;
+    <div class="row">${costBtn('Buy gate slot', gateCost(), 'upgrade', 'gates')}<span class="muted">Aircraft: <b data-bind="fleetcount"></b></span></div>
+    <p class="muted small" style="margin-top:10px">Rebuild clears every stand, taxiway and runway and lays the current standard layout for your fleet. You pay full price for the new tiles and the old ones are not refunded.</p>
+    <div class="row"><button class="btn danger" data-act="reseed">🏗️ Rebuild airport layout</button></div></div>`;
 }
 function renderPanel(){ const p = $('#apanel'); if(p){ p.innerHTML = panelHTML(); updateUI(); } }
 function bAirport(){
@@ -1228,6 +1244,9 @@ const ACT = {
   checkAll: () => G.fleet.forEach(ac => { if(['ready','grounded'].includes(ac.state) && ac.cond<95) startCheck(ac); }),
   sell: a => { const i = G.fleet.findIndex(z=>z.id==a); if(i<0 || G.fleet[i].state==='flying') return; G.cash += sellValue(G.fleet[i]); G.fleet.splice(i,1); build(); },
   mode: a => { mode = a; sel = null; build(); },
+  reseed: () => { if(reseedAirport(fee => confirm(`Rebuild the airport on the standard layout for ${money(fee)}?
+
+Every stand, taxiway and runway you have built is removed. The old tiles are not refunded.`))) build(); },
   place: a => { if(sel && sel.plot != null && G.layout[a] == null && buyUpgrade(a)){ G.layout[a] = sel.plot; sel = {bld:a}; build(); } },
   openRoute: a => { if(openRoute(a)) build(); },
   upgrade: a => { if(buyUpgrade(a)) build(); },
