@@ -18,6 +18,7 @@ An idle airline manager. Start a brand, build a pixel-art airport, buy aircraft,
 - **Early game is manual:** dispatch flights, buy fuel, run maintenance checks and offset carbon yourself.
 - **Automation unlocks by level:** airport operations (3), fuel procurement (5), maintenance (7), carbon offsets (9), network planning (12). They stay unlocked after your first IPO.
 - **Fuel and carbon:** fuel prices swing with the market; CO₂ above your allowance is hit with a levy.
+- **Runway licences:** a licence caps how long a runway you may build, and a longer runway is what lets a bigger aircraft fly at all. Each of the seven tiers opens exactly one more aircraft, and each needs more of the map unlocked before you can buy it — 2 blocks for 1000 m up to 18 for 3000 m — plus cash and flight tokens. Runways you already built are never shortened.
 - **Flight tokens:** a second currency, spent only on distant land. You earn one per level (three every fifth level), a lump for each of the 15 achievements (flights flown, routes open, fleet size, lifetime revenue, brand rating, terminal mood, first IPO), and two whenever an airshow charter event fires. The Company tab lists them all. Tokens, achievements and land survive an IPO.
 - **IPO:** from level 10, restart with permanent shares that boost revenue.
 - Progress is saved in your browser. Offline earnings (up to 12h) only count for what you have automated.

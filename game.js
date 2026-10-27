@@ -92,6 +92,18 @@ function achStep(){
   }
 }
 
+// Runway licences. Each one allows a longer runway, which is what lets a bigger aircraft fly at all,
+// and each needs more of the map unlocked first — so the fleet grows only as fast as the airport does.
+const LIC = [
+  {m:750,  blocks:1,  cash:0,     tok:0,  opens:'Swift T76'},
+  {m:1000, blocks:2,  cash:45e3,  tok:1,  opens:'Falcon J120'},
+  {m:1500, blocks:4,  cash:180e3, tok:2,  opens:'Meridian N180'},
+  {m:1750, blocks:6,  cash:700e3, tok:4,  opens:'Meridian N240'},
+  {m:2250, blocks:9,  cash:3e6,   tok:6,  opens:'Atlas W300'},
+  {m:2500, blocks:13, cash:12e6,  tok:9,  opens:'Atlas W400'},
+  {m:3000, blocks:18, cash:45e6,  tok:13, opens:'Titan S550'},
+];
+
 const COLORS = ['#3aa0ff','#ff6b6b','#3ddc97','#ffc857','#b388ff','#ff8fd0','#4dd0e1','#ff9a3c'];
 
 /* ---------- helpers ---------- */
@@ -213,7 +225,7 @@ function newGame(brand, prev){
     v:1, brand, cash:60000, xp:0, level:1, lifetime:0, allTime: prev ? prev.allTime : 0,
     shares: prev ? prev.shares : 0, ipos: prev ? prev.ipos : 0,
     fuel:400, fuelMult:1, fuelHist:[1], creditMult:1, debt:0, totalCO2:0, totalOffset:0,
-    tok: prev ? prev.tok||0 : 0, ach: prev ? prev.ach||{} : {},
+    tok: prev ? prev.tok||0 : 0, ach: prev ? prev.ach||{} : {}, lic: prev ? prev.lic||0 : 0,
     land: prev && prev.land ? prev.land : Object.fromEntries(START_LAND.map(b => [b, 1])),
     ticket:1, upg:{}, routes:{}, fleet:[], nextId:101, time:0, evt:{}, nextEvt:90, taxT:20,
     mAcc:0, xAcc:0, charterCD:0, flights:0, rate:0, lfEma:0.6, acc:0, log:[], lastSave:Date.now(),
@@ -240,7 +252,7 @@ const creditPrice = () => 30 * G.creditMult * (1+G.level*0.03) * (G.evt.carbonUn
 const allowance = () => 25 + 6*G.level;
 const revMult = () => (1 + 0.05*G.shares) * (1 + 0.06*(G.upg.shop||0));
 const demandEvt = () => G.evt.demandUntil > G.time ? 1.25 : 1;
-const xpNeed = l => Math.round(60 * Math.pow(1.55, l-1));
+const xpNeed = l => Math.round(100 * Math.pow(1.66, l-1));
 const autoReq = id => G.ipos > 0 ? 1 : AUTO[id].lvl;
 const autoUnlocked = id => G.level >= autoReq(id);
 const autoOn = id => autoUnlocked(id) && G.auto[id].on;
@@ -611,7 +623,8 @@ function updateUI(){
   document.querySelectorAll('[data-w]').forEach(el => { const w = widthVal(el.dataset.w).toFixed(1)+'%'; if(el._v!==w){ el._v=w; el.style.width=w; } });
   document.querySelectorAll('[data-cost]').forEach(el => {
     el.disabled = G.cash < +el.dataset.cost || (el.dataset.gate && G.fleet.length >= gates())
-      || (el.dataset.tok && G.tok < +el.dataset.tok);
+      || (el.dataset.tok && G.tok < +el.dataset.tok)
+      || (el.dataset.blocks && nBlocks() < +el.dataset.blocks);
   });
   document.querySelectorAll('.ac').forEach(el => {
     const a = G.fleet.find(z=>z.id==el.dataset.id); if(!a) return;
@@ -674,7 +687,7 @@ function bFleet(){
       <div class="cat-img">${planeSVG(i, col)}</div>
       <div><b>${t.name}</b>
         <div class="specs"><span><em>Seats</em> ${t.seats}</span><span><em>Range</em> ${fmt(t.range)} km</span><span><em>Runway</em> ${RWY[i]} m</span><span><em>Speed</em> ${t.speed} km/s</span><span><em>Fuel</em> ${t.burn}/km</span></div></div>
-      ${locked ? `<span class="tag">🔒 Unlocks at level ${t.lvl}</span>` : RWY[i] > runwayLen() ? `<span class="tag">🛫 Needs a ${RWY[i]} m runway</span>` :
+      ${locked ? `<span class="tag">🔒 Unlocks at level ${t.lvl}</span>` : RWY[i] > licLen() ? `<span class="tag">📜 Needs a ${RWY[i]} m runway licence</span>` : RWY[i] > runwayLen() ? `<span class="tag">🛫 Needs a ${RWY[i]} m runway</span>` :
         `<button class="btn pri" data-act="buy" data-arg="${i}" data-cost="${t.cost}" data-gate="1">Buy · ${money(t.cost)}</button>`}
     </div>`;
   }).join('');
@@ -753,6 +766,22 @@ function landInfo(){
 }
 const hallW = () => landInfo().hx1 + 1;                       // the hall runs the width of the blocks you own in row 1
 const nPlots = () => Math.max(1, hallW() - 1);
+const nBlocks = () => Object.keys(G.land || {}).length;
+const licAt = i => LIC[clamp(i|0, 0, LIC.length-1)];
+const licLen = () => licAt(G.lic || 0).m;                     // the longest runway your licence allows
+const licTiles = () => Math.floor(licLen()/M_TILE);
+const nextLic = () => (G.lic || 0) + 1 < LIC.length ? LIC[(G.lic || 0) + 1] : null;
+function buyLicence(){
+  const L = nextLic();
+  if(!L) return false;
+  if(nBlocks() < L.blocks){ toast(`That licence needs ${L.blocks} land blocks — you own ${nBlocks()}.`); return false; }
+  if(G.cash < L.cash){ toast(`That licence costs ${money(L.cash)}.`); return false; }
+  if(G.tok < L.tok){ toast(`That licence also needs ${L.tok} flight tokens — you have ${G.tok}.`); return false; }
+  G.cash -= L.cash; G.tok -= L.tok; G.lic = (G.lic || 0) + 1;
+  logMsg(`\u{1F4DC} Runway licence granted: you may now build up to ${L.m} m.`);
+  toast(`\u{1F4DC} Licensed for ${L.m} m runways!`);
+  return true;
+}
 const landRing = b => (b % BW) + ((b / BW)|0);
 const landCost = b => ({cash: Math.round(20000 * Math.pow(1.7, landRing(b))), tok: Math.max(0, landRing(b) - 2)});
 function buyableLand(){                                       // locked blocks touching one you already own
@@ -1041,8 +1070,15 @@ const paxHappy = () => pax.length ? pax.reduce((s, p) => s + p.mood, 0)/pax.leng
 function ensureAirport(){
   G.layout = G.layout || {};
   ensureHall();
-  if(!G.tiles || !G.stands) seedAirport();
-  else migrateGeo();
+  if(!G.tiles || !G.stands){ G.lic = G.lic || 0; seedAirport(); }
+  else {
+    migrateGeo();
+    if(G.lic == null){                                  // grandfather the runway this airline already built
+      const m = runwayLen();
+      G.lic = 0;
+      for(let i = 0; i < LIC.length; i++) if(LIC[i].m <= m) G.lic = i;
+    }
+  }
   if(Object.values(G.layout).some(p => p >= nPlots())) G.layout = {};
   const used = new Set(Object.values(G.layout));
   for(const id of BUILD) if(G.upg[id] && G.layout[id] == null){
@@ -1099,7 +1135,7 @@ function seedAirport(){
   const down = rowB ? lane2 : lane, rwy = down + 2;
   for(let gy = down+1; gy < rwy; gy++) put(0, gy, 'taxi');
   const need = G.fleet.reduce((m, a) => Math.max(m, RWY[a.type]), 500);
-  const len = clamp(Math.ceil(need/M_TILE), 3, W);
+  const len = clamp(Math.ceil(need/M_TILE), 3, Math.min(W, licTiles()));
   for(let gx = 0; gx < len; gx++) put(gx, rwy, 'run');
   invalidate();
 }
@@ -1117,7 +1153,7 @@ function reseedAirport(confirmFn){
 }
 function autoExtendRunway(){
   const R = longestRunway();
-  if(!R) return false;
+  if(!R || R.len >= licTiles()) return false;
   for(const gx of [R.x0-1, R.x1+1]) if(inAir(gx, R.gy) && !tType(gx, R.gy) && standIdxAt(gx, R.gy) < 0){
     const c = runCost(); if(G.cash < c) return false;
     G.cash -= c; G.tiles[tkey(gx, R.gy)] = 'run'; invalidate(); return true;
@@ -1502,6 +1538,15 @@ function applyBuild(gx, gy){
   const t = mode === 'run' ? 'run' : 'taxi', c = t === 'run' ? runCost() : taxiCost();
   if(standIdxAt(gx, gy) >= 0) return toast('Demolish the stand first.');
   if(tType(gx, gy) === t) return;
+  if(t === 'run'){
+    let n = 1;                                                  // how long this strip would become
+    for(let x = gx-1; tType(x, gy) === 'run'; x--) n++;
+    for(let x = gx+1; tType(x, gy) === 'run'; x++) n++;
+    if(n > licTiles()){
+      if(paint) paint.stop = 1;                                 // stop the drag here instead of leaving gaps
+      return toast(`Your licence covers runways up to ${licLen()} m. Unlock more land, then buy the next one.`);
+    }
+  }
   if(G.cash < c) return toast('Not enough cash.');
   G.cash -= c; G.tiles[tkey(gx, gy)] = t; invalidate();
 }
@@ -1532,6 +1577,7 @@ function sceneClick(e){
   renderPanel();
 }
 function paintAt(gx, gy){
+  if(paint.stop) return;
   if(mode === 'run') gy = paint.gy;                           // a runway is one straight row
   if(mode === 'stand' && paint.at) return;                    // one stand per press, not a trail of them
   const p = paint.at;
@@ -1541,6 +1587,7 @@ function paintAt(gx, gy){
   for(let n = 0, ax = p[0], ay = p[1]; (ax !== gx || ay !== gy) && n < GW+GH; n++){   // a fast drag skips tiles
     if(ax !== gx) ax += Math.sign(gx-ax); else ay += Math.sign(gy-ay);               // one axis at a time: no diagonal gaps
     applyBuild(ax, ay);
+    if(paint.stop) break;
   }
   invalidate();
 }
@@ -1581,6 +1628,15 @@ function hallStatus(){
     <span class="muted">In the hall now: <b>${pax.length}</b> passengers, mood <b>${Math.round(paxHappy())}%</b>${G.paxRev ? ` · earned <b class="good">${money(G.paxRev)}</b>` : ''}</span></p>
     ${warn.length ? `<p class="bad">⚠ ${warn.join(' and ')} — passengers give up and walk out.</p>` : ''}`;
 }
+function licCard(){
+  const L = nextLic(), m = licLen();
+  if(!L) return `<p><span class="tag on">\u{1F4DC} Fully licensed — runways up to ${m} m.</span></p>`;
+  const ok = nBlocks() >= L.blocks;
+  return `<p class="muted" style="margin-top:10px">\u{1F4DC} <b>Runway licence:</b> you may build up to <b>${m} m</b>.
+    The next one allows <b>${L.m} m</b>, enough for the <b>${L.opens}</b>, and first needs
+    <b class="${ok ? 'good' : 'bad'}">${L.blocks} land blocks</b> — you own <b>${nBlocks()}</b>.</p>
+    <div class="row"><button class="btn pri" data-act="licence" data-cost="${L.cash}" data-blocks="${L.blocks}"${L.tok ? ` data-tok="${L.tok}"` : ''}>Buy licence · ${money(L.cash)}${L.tok ? ` + ${L.tok} ${TOKEN}` : ''}</button></div>`;
+}
 function modeHelp(){
   const info = `<p>Land: <b>${Object.keys(G.land).length}</b>/${BW*BW} blocks · <b>${G.tok}</b> ${TOKEN} flight tokens<br>
     Runways (${runways().length}): ${rwyList()}</p>` + hallStatus();
@@ -1589,7 +1645,7 @@ function modeHelp(){
     return info + `<p class="muted">${D.desc} Drag across empty tiles inside the terminal hall. <b>${money(D.cost)}</b> each${D.fee ? `, earns about <b>${money(paxFee(mode))}</b> per customer` : ''}.</p>`; }
   if(mode === 'stand') return info + `<p class="muted">Tap the airside to drop a ${SS}x${SS} stand. Stands used: <b>${G.stands.length}/${gates()}</b>.</p>`;
   if(mode === 'taxi') return info + `<p class="muted">Drag to paint a taxiway from every stand to a runway — a plane cannot depart without a connected route, and taxiways cannot cross a runway, so route around it. <b>${money(taxiCost())}</b> per tile.</p>`;
-  if(mode === 'run') return info + `<p class="muted">Drag sideways to lay a runway — it stays in the row you started on. Each straight line of ${MIN_RUN}+ tiles is its own runway, ${M_TILE} m per tile. A stand uses the longest runway its taxiways reach, and one runway launches one aircraft at a time. <b>${money(runCost())}</b> per tile.</p>`;
+  if(mode === 'run') return info + `<p class="muted">Drag sideways to lay a runway — it stays in the row you started on. Your licence caps a runway at <b>${licLen()} m</b> (${licTiles()} tiles); longer ones need more land and the next licence. Each straight line of ${MIN_RUN}+ tiles is its own runway, ${M_TILE} m per tile. A stand uses the longest runway its taxiways reach, and one runway launches one aircraft at a time. <b>${money(runCost())}</b> per tile.</p>`;
   return info + '<p class="muted">Tap or drag over facilities, tiles and stands to remove them. You get half the cost back.</p>';
 }
 function panelHTML(){
@@ -1640,6 +1696,7 @@ function panelHTML(){
       ${R ? `<span class="tag on">Uses the ${R.R.len*M_TILE} m runway</span>` : '<span class="tag">⚠ No taxiway route to a runway</span>'}</div>`;
   }
   return `<div class="card"><h3>Your airport</h3>${modeHelp()}
+    ${licCard()}
     <div class="row">${costBtn('Buy gate slot', gateCost(), 'upgrade', 'gates')}<span class="muted">Aircraft: <b data-bind="fleetcount"></b></span></div>
     <p class="muted small" style="margin-top:10px">Rebuild clears every stand, taxiway and runway and lays the standard layout for your fleet. You pay full price for the new tiles and the old ones are not refunded; your terminal interior is untouched.</p>
     <div class="row"><button class="btn danger" data-act="reseed">\u{1F3D7}️ Rebuild airside layout</button></div></div>`;
@@ -1790,6 +1847,7 @@ const ACT = {
   sell: a => { const i = G.fleet.findIndex(z=>z.id==a); if(i<0 || G.fleet[i].state==='flying') return; G.cash += sellValue(G.fleet[i]); G.fleet.splice(i,1); build(); },
   mode: a => { mode = a; sel = null; build(); },
   land: a => { if(buyLand(+a)){ sel = null; build(); } },
+  licence: () => { if(buyLicence()) build(); },
   zoom: () => { zoom = (zoom+1) % ZOOM.length; cam.set = false; build(); },
   centre: () => { cam.set = false; build(); },
   reseed: () => { if(reseedAirport(fee => confirm(`Rebuild the airport on the standard layout for ${money(fee)}?
@@ -1809,7 +1867,7 @@ Every stand, taxiway and runway you have built is removed. The old tiles are not
     const g = ipoGain();
     if(!(G.level>=10 && g>=1)) return;
     if(!confirm(`Go public for ${g} new shares? You will restart with a new fleet.`)) return;
-    const b = G.brand, prev = {allTime:G.allTime, shares:G.shares+g, ipos:G.ipos+1, tok:G.tok, ach:G.ach, land:G.land};
+    const b = G.brand, prev = {allTime:G.allTime, shares:G.shares+g, ipos:G.ipos+1, tok:G.tok, ach:G.ach, land:G.land, lic:G.lic};
     newGame(b, prev); tab='overview'; applyBrand(); build(); toast(`📈 IPO complete! You now hold ${G.shares} shares.`);
   },
 };
