@@ -22,7 +22,7 @@ header{padding:16px 0 10px}
 
 /* nav */
 nav{display:flex;gap:6px;overflow-x:auto;padding:6px 0 10px;margin-bottom:14px;position:sticky;top:0;background:var(--bg);z-index:5;border-bottom:1px solid var(--line)}
-nav button{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 16px;cursor:pointer;color:var(--muted);white-space:nowrap;font-size:16px;font-weight:600}
+nav button{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 16px;cursor:grab;color:var(--muted);white-space:nowrap;font-size:16px;font-weight:600}
 nav button.on{background:var(--brand);border-color:var(--brand);color:#06111f}
 nav button:hover:not(.on){color:var(--text);border-color:var(--brand)}
 
@@ -120,4 +120,11 @@ th{color:var(--muted);font-weight:600;font-size:14px}
 
 /* pixel airport scene */
 .pix{padding:6px;border:4px solid #2b3a7a;background:#1b2766;box-shadow:0 0 0 2px #0a1030}
-#scene{height:auto;aspect-ratio:532/305;image-rendering:pixelated;cursor:pointer;border-radius:0;background:#5aa84a}
+#scene{height:auto;aspect-ratio:66/43;image-rendering:pixelated;cursor:pointer;border-radius:0;background:#5aa84a}
+
+/* Kairosoft-style result panel */
+.kbox{border:4px solid #4448a8;background:#1b2140;box-shadow:0 0 0 4px #0a1030,0 10px 40px #000a;max-width:380px}
+.kbar{background:#2a2d6e;border:2px solid #6a70d8;color:#ffe36b;font:bold 17px monospace;text-align:center;padding:8px;margin:-6px -6px 14px}
+.krows{width:100%;margin-bottom:12px}
+.krows td{border-bottom:1px dashed #3b4575;padding:7px 4px;font-size:15px}
+.krows td:last-child{text-align:right;color:#ffe36b}

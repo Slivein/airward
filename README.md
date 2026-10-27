@@ -5,7 +5,8 @@ An idle airline manager. Start a brand, build a pixel-art airport, buy aircraft,
 **Play:** https://airward-six.vercel.app
 
 ## How to play
-- **Airport tab:** an isometric airport you lay out yourself. Use the toolbar to switch tools:
+- **Airport tab:** a close-up isometric airport you lay out yourself. Drag to pan, and use the zoom and centre buttons. Use the toolbar to switch tools:
+  - **Terminal interior** (Check-in, Security, Cafe, Duty-free, Seating, Restroom) — place these inside the terminal hall. Passengers walk in, queue at check-in, clear security, then spend money at your shops. Every passenger needs a check-in desk and a security lane or they give up and walk out. Long queues sour their mood, which feeds your brand rating.
   - **Select** — tap a plot to build a facility, a building to upgrade it, or a plane to dispatch/service it.
   - **Stand** — drop a 3x3 parking stand (one per gate slot you own). Plane *n* parks at stand *n*.
   - **Taxiway** — paint the route from each stand to a runway. A plane with no connected route cannot depart, and taxiways cannot cross a runway.
