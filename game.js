@@ -355,12 +355,13 @@ function tryDepart(a){
   const d = routeDist(a.route);
   if(d > t.range){ a.route=null; a.state='noroute'; return false; }
   a.dist = d;
+  const air = 2*d/t.speed;
   const si = G.fleet.indexOf(a), stood = si < G.stands.length;
   const routes = stood ? taxiRoutes(si) : (longestRunway() ? [{R: longestRunway()}] : []);
   if(stood && !routes.length){ a.state='notaxi'; return false; }
   const fits = routes.filter(r => r.R.len*M_TILE >= RWY[a.type]);
   if(!fits.length){ a.state='shortrwy'; return false; }
-  const use = fits.find(r => rwFree(r.R));                       // longest free runway wins
+  const use = fits.find(r => rwFree(r.R, gndTime(r), flightTime(air, gndTime(r))));   // longest clear runway
   if(!use){ a.state='hold'; return false; }
   const R = use.R;
   const need = fuelNeed(a);
@@ -370,9 +371,8 @@ function tryDepart(a){
   G.fuel -= need;
   const co2 = need * 0.01 * co2Mult();
   G.debt += co2; G.totalCO2 += co2;
-  rwBusy()[R.id] = G.time + 1 + a.type*0.15;   // the runway is occupied while this aircraft rolls
-  a.rw = R.id;
-  a.state='flying'; a.t=0; a.dur=2*d/t.speed;
+  a.rw = R.id; a.gnd = gndTime(use);
+  a.state='flying'; a.t=0; a.dur=flightTime(air, a.gnd);
   return true;
 }
 function startCheck(a, auto){
@@ -823,8 +823,29 @@ function runways(){
 }
 const longestRunway = () => runways().reduce((m, R) => !m || R.len > m.len ? R : m, null);
 const runwayLen = () => { const r = longestRunway(); return r ? r.len*M_TILE : 0; };
-const rwBusy = () => G.rwBusy || (G.rwBusy = {});
-const rwFree = R => !R || G.time >= (rwBusy()[R.id] || 0);
+/* Ground moves run on their own clock so a short hop does not taxi at a sprint:
+   the taxi takes as long as the route is, and the roll is the same every time. */
+const TAXI_TPS = 1.6, ROLL = 1.8;                             // taxiway tiles per second, seconds of roll
+const gndTime = r => ((r && r.len) || 6)/TAXI_TPS + ROLL;     // seconds on the ground at each end
+const flightTime = (air, gnd) => Math.max(air, 2*gnd + 2.5);  // a short hop still has to taxi both ends
+const gndF = a => Math.min(0.48, (a.gnd || 5) / Math.max(a.dur, 0.1));   // ...as a share of the flight
+const taxiF = a => Math.max(0, 1 - ROLL / Math.max(a.gnd || 5, ROLL + 0.1));  // taxi's share of that
+function rwBooked(R){                                         // every roll and landing already due on R
+  const w = [];
+  for(const a of G.fleet){
+    if(a.state !== 'flying' || a.rw !== R.id) continue;
+    const t0 = G.time - a.t, g = gndF(a)*a.dur, tf = taxiF(a);
+    w.push([t0 + g*tf, t0 + g], [t0 + a.dur - g, t0 + a.dur - g*tf]);
+  }
+  return w;
+}
+function rwFree(R, gnd, dur){        // keep clear of every roll and landing already due on this strip
+  if(!R) return true;
+  const g = Math.min(0.48*dur, gnd), tf = 1 - ROLL/gnd, PAD = 0.3;
+  const mine = [[G.time + g*tf, G.time + g], [G.time + dur - g, G.time + dur - g*tf]];
+  const booked = rwBooked(R);
+  return !mine.some(([s, e]) => booked.some(([x, y]) => s - PAD < y && x < e + PAD));
+}
 
 function taxiRoutes(i){
   if(i in pathCache) return pathCache[i];
@@ -858,7 +879,9 @@ function taxiRoutes(i){
     const [ggx, ggy] = unkey(goal), ex = ggy === R.gy ? (ggx < R.x0 ? R.x0 : R.x1) : ggx;
     pts.push([ex+.5, R.gy+.5]);
     if(ex !== R.x0) pts.push([R.x0+.5, R.gy+.5]);
-    out.push({pts, R});
+    let len = 0;
+    for(let n = 1; n < pts.length; n++) len += Math.hypot(pts[n][0]-pts[n-1][0], pts[n][1]-pts[n-1][1]);
+    out.push({pts, R, len});
   }
   out.sort((a, b) => b.R.len - a.R.len);
   return pathCache[i] = out;
@@ -1015,7 +1038,7 @@ const paxHappy = () => pax.length ? pax.reduce((s, p) => s + p.mood, 0)/pax.leng
 
 /* --- airport setup and migration --- */
 function ensureAirport(){
-  G.layout = G.layout || {}; G.rwBusy = G.rwBusy || {};
+  G.layout = G.layout || {};
   ensureHall();
   if(!G.tiles || !G.stands) seedAirport();
   else migrateGeo();
@@ -1244,21 +1267,20 @@ function drawTree(x, gx, gy){
   poly(x, [[X, Y-26*s], [X+7*s, Y-18*s], [X, Y-12*s], [X-7*s, Y-18*s]], '#43a64f');
 }
 
-const OUT = 0.14, IN = 0.14;
 function drawFlying(x, a, i, col){
   const p = a.t/a.dur, P = routeFor(i, a.rw);
   if(!P) return;
-  const R = P.R, up = 26*TW()/44;
-  if(p < OUT){
-    const u = p/OUT;
-    if(u < 0.62){ const [wx, wy, r] = walkPath(P.pts, u/0.62); drawPlane(x, wx, wy, a.type, col, r, 0); }
-    else { const v = (u-0.62)/0.38, z = v > 0.7 ? (v-0.7)/0.3*up : 0;
+  const R = P.R, up = 26*TW()/44, G0 = gndF(a), TF = taxiF(a), nt = 1 - TF;
+  if(p < G0){
+    const u = p/G0;
+    if(u < TF){ const [wx, wy, r] = walkPath(P.pts, u/TF); drawPlane(x, wx, wy, a.type, col, r, 0); }
+    else { const v = (u-TF)/nt, z = v > 0.7 ? (v-0.7)/0.3*up : 0;
       drawPlane(x, R.x0+.5 + (R.x1-R.x0)*v*v, R.gy+.5, a.type, col, Math.PI/2, z); }
-  } else if(p > 1-IN){
-    const v = (p-(1-IN))/IN;
-    if(v < 0.4){ const u = v/0.4; drawPlane(x, R.x1+.5 + (1-u)*9, R.gy+.5, a.type, col, -Math.PI/2, (1-u)*up); }
-    else if(v < 0.68){ const u = (v-0.4)/0.28; drawPlane(x, R.x1+.5 - (R.x1-R.x0)*(1-(1-u)*(1-u)), R.gy+.5, a.type, col, -Math.PI/2, 0); }
-    else { const u = (v-0.68)/0.32, [wx, wy, r] = walkPath(P.pts, 1-u); drawPlane(x, wx, wy, a.type, col, r+Math.PI, 0); }
+  } else if(p > 1-G0){
+    const v = (p-(1-G0))/G0;
+    if(v < nt*0.59){ const u = v/(nt*0.59); drawPlane(x, R.x1+.5 + (1-u)*9, R.gy+.5, a.type, col, -Math.PI/2, (1-u)*up); }
+    else if(v < nt){ const u = (v-nt*0.59)/(nt*0.41); drawPlane(x, R.x1+.5 - (R.x1-R.x0)*(1-(1-u)*(1-u)), R.gy+.5, a.type, col, -Math.PI/2, 0); }
+    else { const u = (v-nt)/TF, [wx, wy, r] = walkPath(P.pts, 1-u); drawPlane(x, wx, wy, a.type, col, r+Math.PI, 0); }
   }
 }
 
