@@ -878,7 +878,7 @@ function paxStep(dt){
     const tx = p.at.gx + .5 + qn*0.42 - row, ty = p.at.gy + .5 + (p.slot ? 0.58 + row : 0.66);
     const dx = tx - p.x, dy = ty - p.y, d = Math.hypot(dx, dy);
     if(d > 0.06){ const v = Math.min(dt*1.3, d); p.x += dx/d*v; p.y += dy/d*v; p.flip = dx < 0; continue; }
-    if(p.slot > 0){ p.mood -= dt*1.7; if(p.mood < 30 && !p.em) emote(p, 'wait'); continue; }
+    if(p.slot > 0){ p.mood = Math.max(0, p.mood - dt*1.7); if(p.mood < 30 && !p.em) emote(p, 'wait'); continue; }
     p.t += dt;
     const D = FAC[f.k];
     if(p.t < D.dwell) continue;
