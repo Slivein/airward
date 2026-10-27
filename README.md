@@ -5,12 +5,12 @@ An idle airline manager. Start a brand, build a pixel-art airport, buy aircraft,
 **Play:** https://airward-six.vercel.app
 
 ## How to play
-- **Airport tab:** a close-up isometric airport you lay out yourself. Drag to pan, and use the zoom and centre buttons. Use the toolbar to switch tools:
+- **Airport tab:** a close-up isometric airport you lay out yourself. With Select active, drag to pan; with a build tool active, drag to lay a whole run of tiles in one go. Use the zoom and centre buttons. Use the toolbar to switch tools:
   - **Terminal interior** (14 types: Check-in, Security, Vending, Newsstand, Cafe, Restaurant, Duty-free, Currency Exchange, Premium Lounge, Seating, Play Area, Restroom, plus two that work by proximity — Indoor Garden and Information Desk) — place these inside the terminal hall. Passengers walk in, queue at check-in, clear security, then spend money at your shops. Every passenger needs a check-in desk and a security lane or they give up and walk out. Long queues sour their mood, which feeds your brand rating. Shops trade off speed against spend — a vending machine serves a crowd for pennies, a lounge earns a fortune but ties a passenger up. A garden lifts the mood of anyone standing near it; an information desk placed beside a queue makes people far more patient. Happy passengers browse an extra shop.
   - **Select** — tap a plot to build a facility, a building to upgrade it, or a plane to dispatch/service it.
   - **Stand** — drop a 3x3 parking stand (one per gate slot you own). Plane *n* parks at stand *n*.
-  - **Taxiway** — paint the route from each stand to a runway. A plane with no connected route cannot depart, and taxiways cannot cross a runway.
-  - **Runway** — lay tiles in a straight line. Every line of 2+ tiles is its own runway at 250 m per tile, so you can build several. Bigger aircraft need longer runways. A stand uses the longest runway its taxiways reach, and one runway launches one aircraft at a time, so a second runway clears a departure queue.
+  - **Taxiway** — drag to paint the route from each stand to a runway. A plane with no connected route cannot depart, and taxiways cannot cross a runway.
+  - **Runway** — drag sideways to lay tiles; the run stays in the row you started on. Every line of 2+ tiles is its own runway at 250 m per tile, so you can build several. Bigger aircraft need longer runways. A stand uses the longest runway its taxiways reach, and one runway launches one aircraft at a time, so a second runway clears a departure queue.
   - **Demolish** — remove a tile or stand; tiles refund half.
   - **Rebuild airport layout** (in the Select panel) — clears the airside and lays the current standard layout, sized to your fleet. You pay full price for the new tiles and the old ones are not refunded.
 - **Early game is manual:** dispatch flights, buy fuel, run maintenance checks and offset carbon yourself.

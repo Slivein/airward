@@ -696,7 +696,7 @@ const plotAt = (gx, gy) => gx - 1;
 const inHall = (gx, gy) => gx >= 0 && gx < GW && gy >= HALL0 && gy <= HALL1;
 const inAir = (gx, gy) => gx >= 0 && gx < GW && gy >= AIR && gy < GH;
 let sel = null, mode = 'sel';
-let floats = [], pax = [], drag = null;
+let floats = [], pax = [], drag = null, paint = null;
 function showResult(title, rows, flavour){
   const m = $('#modal'); if(!m) return;
   m.hidden = false;
@@ -1074,26 +1074,42 @@ function drawFacility(x, gx, gy, f, night){
 function drawPlane(x, wx, wy, t, col, rot, z){
   const w = WP(), L = 14 + t*3.2, S = 16 + Math.round(t*3.4), fw = t > 4 ? 7 : 5, k = TW()/(2*w);
   const [X, Y] = iso(wx, wy);
-  const spr = mono => {
+  const wz = Math.max(2, Math.round(1.2*k)), bh = Math.max(3, Math.round((2 + t*0.55)*k));
+  const hull = () => { x.fillRect(-fw/2, -L/2+1, fw, L-1); x.fillRect(-fw/2+1, -L/2, fw-2, 1); };
+  const wing = mono => {
     const C = c => mono || c;
     x.fillStyle = C('#cbd6e8');
     for(let q = 0; q < S/2; q++){ const o = Math.floor(q*0.4); x.fillRect(-fw/2-q-1, o, 1, 4); x.fillRect(fw/2+q, o, 1, 4); }
-    x.fillStyle = C('#f7fafe'); x.fillRect(-fw/2, -L/2, fw, L);
-    x.fillStyle = C(col); x.fillRect(-fw/2, -L/2+L*0.3, fw, 3);
     x.fillStyle = C('#aab8d0'); x.fillRect(-S*0.2, L/2-3, S*0.4, 3);
-    x.fillStyle = C('#37577f'); x.fillRect(-fw/2+1, -L/2+1, fw-2, 3);
-    x.fillStyle = C('#444c5e');
+  };
+  const eng = mono => {
+    x.fillStyle = mono || '#5a6478';
     if(t === 0) x.fillRect(-4, -L/2-1, 8, 2);
     else for(const sx of (t === 7 ? [-.32,-.17,.17,.32] : [-.26,.26])) x.fillRect(Math.round(S*sx)-1, 3 + Math.floor(Math.abs(S*sx)*0.4), 3, 5);
   };
-  const put = (ox, oy, mono) => { x.setTransform(k, k/2, -k, k/2, X+ox, Y-z+oy); x.rotate(rot); spr(mono); };
-  if(z > 0.5){ x.setTransform(k, k/2, -k, k/2, X + z*0.4, Y); x.rotate(rot); spr('rgba(0,0,0,.3)'); }
-  for(const [ox, oy] of DIRS) put(ox, oy, '#13213f');
-  put(0, 0);
+  const body = mono => {
+    if(mono){ x.fillStyle = mono; return hull(); }
+    x.fillStyle = '#f7fafe'; hull();
+    x.fillStyle = col; x.fillRect(-fw/2, -L/2+L*0.3, fw, 3);
+    x.fillStyle = '#37577f'; x.fillRect(-fw/2+1, -L/2+1, fw-2, 3);
+  };
+  const at = (f, oy, mono) => { x.setTransform(k, k/2, -k, k/2, X, Y-z+oy); x.rotate(rot); f(mono); };
+  const edge = (f, oy) => { for(const [ox, oy2] of DIRS){ x.setTransform(k, k/2, -k, k/2, X+ox, Y-z+oy+oy2); x.rotate(rot); f('#13213f'); } };
+  x.setTransform(k, k/2, -k, k/2, X + (z > 0.5 ? z*0.4 : 1), Y);  // ground shadow
+  x.rotate(rot); wing('rgba(0,0,0,.28)'); body('rgba(0,0,0,.28)');
+  for(let d = 0; d < wz; d++) at(eng, -d, '#39425a');           // engine pods hang under the wing
+  at(eng, -wz);
+  edge(wing, -wz-1);
+  at(wing, -wz, '#8e9cb6'); at(wing, -wz-1);
+  edge(body, -wz-bh);
+  for(let d = 0; d < bh; d++) at(body, -wz-d, shade('#d4deef', 0.62 + 0.38*d/bh));   // fuselage sides
+  at(body, -wz-bh);
   x.setTransform(1, 0, 0, 1, 0, 0);
-  const lx = -Math.sin(rot)*L/2, ly = Math.cos(rot)*L/2, tx = X + (lx-ly)*k, ty = Y - z + (lx+ly)*k/2, fh = (5 + t*1.1)*k;
-  x.fillStyle = '#13213f'; x.fillRect(tx-2, ty-fh, 4, fh);
-  x.fillStyle = col; x.fillRect(tx-1, ty-fh+1, 2, fh-1);
+  const lx = -Math.sin(rot)*L/2, ly = Math.cos(rot)*L/2, tx = X + (lx-ly)*k, ty = Y - z + (lx+ly)*k/2 - wz - bh;
+  const dl = Math.hypot((lx-ly)*k, (lx+ly)*k/2) || 1, ux = (lx-ly)*k/dl, uy = (lx+ly)*k/2/dl;   // nose -> tail, on screen
+  const fh = (3.5 + t*0.8)*k, root = 3.4*k, sweep = 2.3*k;
+  poly(x, [[tx - ux*root, ty - uy*root], [tx + ux*k*0.5, ty + uy*k*0.5],
+           [tx + ux*k*0.8 - 0, ty + uy*k*0.8 - fh], [tx - ux*(root-sweep), ty - uy*(root-sweep) - fh]], col, '#13213f');
 }
 function drawBuilding(x, gx, gy, id, lvl, night){
   const h = bldH(lvl), fl = Math.min(4, 1 + Math.floor(lvl/3)), b = BCOL[id], s = TW()/44;
@@ -1281,7 +1297,9 @@ function toolbarHTML(){
 const pick = (px, py) => { const u = (px-cam.x)/(TW()/2), v = (py-cam.y)/(TH()/2); return [Math.floor((u+v)/2), Math.floor((v-u)/2)]; };
 const evPos = (e, c) => { const r = c.getBoundingClientRect(); return [(e.clientX-r.left)/r.width*CW, (e.clientY-r.top)/r.height*CH]; };
 
+function onceToast(m){ if(!paint) return toast(m); if(!paint.said){ paint.said = 1; toast(m); } }
 function applyBuild(gx, gy){
+  const toast = onceToast;                                    // shadows the global: one message per drag
   if(FAC[mode]){
     if(!inHall(gx, gy)) return toast('Interior facilities go inside the terminal hall.');
     if(facAt(gx, gy)) return toast('Something is already there.');
@@ -1319,10 +1337,9 @@ function applyBuild(gx, gy){
 }
 function sceneClick(e){
   const c = e.target, [px, py] = evPos(e, c);
-  if(py < HUD) return;
+  if(py < HUD || mode !== 'sel') return;                      // build tools act on press, not click
   if(drag && drag.moved) return;
   const [gx, gy] = pick(px, py);
-  if(mode !== 'sel'){ applyBuild(gx, gy); return renderPanel(); }
   sel = null;
   for(const dy of [30, 22, 14, 6, 0]){                       // tall things: also test the tile behind
     const [bx, by] = pick(px, py+dy);
@@ -1340,14 +1357,38 @@ function sceneClick(e){
   }
   renderPanel();
 }
-function sceneDown(e){ const [px, py] = evPos(e, e.target); drag = {px, py, cx:cam.x, cy:cam.y, moved:false}; }
+function paintAt(gx, gy){
+  if(mode === 'run') gy = paint.gy;                           // a runway is one straight row
+  if(mode === 'stand' && paint.at) return;                    // one stand per press, not a trail of them
+  const p = paint.at;
+  if(p && p[0] === gx && p[1] === gy) return;
+  paint.at = [gx, gy];
+  if(!p) return applyBuild(gx, gy), invalidate();
+  for(let n = 0, ax = p[0], ay = p[1]; (ax !== gx || ay !== gy) && n < GW+GH; n++){   // a fast drag skips tiles
+    if(ax !== gx) ax += Math.sign(gx-ax); else ay += Math.sign(gy-ay);               // one axis at a time: no diagonal gaps
+    applyBuild(ax, ay);
+  }
+  invalidate();
+}
+function sceneDown(e){
+  const el = e.target, [px, py] = evPos(e, el);
+  if(mode !== 'sel'){
+    if(py < HUD) return;
+    const [gx, gy] = pick(px, py);
+    paint = {gy, at:null, el};
+    return paintAt(gx, gy);
+  }
+  drag = {px, py, cx:cam.x, cy:cam.y, moved:false, el};
+}
 function sceneMove(e){
-  if(!drag) return;
-  const [px, py] = evPos(e, e.target);
+  const d = paint || drag;
+  if(!d) return;
+  const [px, py] = evPos(e, d.el);                            // the canvas, even if the cursor left it
+  if(paint){ if(py < HUD) return; const [gx, gy] = pick(px, py); return paintAt(gx, gy); }
   if(Math.abs(px-drag.px) + Math.abs(py-drag.py) > 5) drag.moved = true;
   if(drag.moved){ cam.x = drag.cx + (px-drag.px); cam.y = drag.cy + (py-drag.py); }
 }
-function sceneUp(){ setTimeout(() => { drag = null; }, 0); }
+function sceneUp(){ if(paint){ paint = null; renderPanel(); } setTimeout(() => { drag = null; }, 0); }
 
 /* --- panels --- */
 function fitsRunway(m = runwayLen()){ return TYPES.filter((t, i) => RWY[i] <= m).pop(); }
@@ -1368,13 +1409,13 @@ function hallStatus(){
 }
 function modeHelp(){
   const info = `<p>Runways (${runways().length}): ${rwyList()}</p>` + hallStatus();
-  if(mode === 'sel') return info + '<p class="muted">Drag the view to pan. Tap a facility, plane, stand or runway for details. Pick a tool above to build.</p>';
+  if(mode === 'sel') return info + '<p class="muted">Drag the view to pan. Tap a facility, plane, stand or runway for details. Pick a tool above to build, then drag to lay a whole run at once.</p>';
   if(FAC[mode]){ const D = FAC[mode];
-    return info + `<p class="muted">${D.desc} Tap an empty tile inside the terminal hall. <b>${money(D.cost)}</b> each${D.fee ? `, earns about <b>${money(paxFee(mode))}</b> per customer` : ''}.</p>`; }
+    return info + `<p class="muted">${D.desc} Drag across empty tiles inside the terminal hall. <b>${money(D.cost)}</b> each${D.fee ? `, earns about <b>${money(paxFee(mode))}</b> per customer` : ''}.</p>`; }
   if(mode === 'stand') return info + `<p class="muted">Tap the airside to drop a ${SS}x${SS} stand. Stands used: <b>${G.stands.length}/${gates()}</b>.</p>`;
-  if(mode === 'taxi') return info + `<p class="muted">Paint a taxiway from every stand to a runway — a plane cannot depart without a connected route, and taxiways cannot cross a runway, so route around it. <b>${money(taxiCost())}</b> per tile.</p>`;
-  if(mode === 'run') return info + `<p class="muted">Each straight line of ${MIN_RUN}+ tiles is its own runway, ${M_TILE} m per tile. A stand uses the longest runway its taxiways reach, and one runway launches one aircraft at a time. <b>${money(runCost())}</b> per tile.</p>`;
-  return info + '<p class="muted">Tap a facility, tile or stand to remove it. You get half the cost back.</p>';
+  if(mode === 'taxi') return info + `<p class="muted">Drag to paint a taxiway from every stand to a runway — a plane cannot depart without a connected route, and taxiways cannot cross a runway, so route around it. <b>${money(taxiCost())}</b> per tile.</p>`;
+  if(mode === 'run') return info + `<p class="muted">Drag sideways to lay a runway — it stays in the row you started on. Each straight line of ${MIN_RUN}+ tiles is its own runway, ${M_TILE} m per tile. A stand uses the longest runway its taxiways reach, and one runway launches one aircraft at a time. <b>${money(runCost())}</b> per tile.</p>`;
+  return info + '<p class="muted">Tap or drag over facilities, tiles and stands to remove them. You get half the cost back.</p>';
 }
 function panelHTML(){
   ensureAirport();
@@ -1595,8 +1636,8 @@ const INP = {
 const lbl = (el, t) => { const l = $('#lbl-'+el.dataset.in); if(l) l.textContent = t; };
 
 document.addEventListener('mousedown', e => { if(e.target.id === 'scene' && G) sceneDown(e); });
-document.addEventListener('mousemove', e => { if(drag && G) sceneMove(e); });
-document.addEventListener('mouseup', () => { if(drag) sceneUp(); });
+document.addEventListener('mousemove', e => { if((drag || paint) && G) sceneMove(e); });
+document.addEventListener('mouseup', () => { if(drag || paint) sceneUp(); });
 document.addEventListener('click', e => {
   if(e.target.id === 'scene' && G) return sceneClick(e);
   const t = e.target.closest('[data-act]'); if(!t || !G || t.disabled) return;
