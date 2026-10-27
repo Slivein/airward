@@ -724,10 +724,10 @@ const BCOL = {tank:'#b7bdc8', crew:'#e0a050', term:'#6fa8dc', eng:'#9aa1ad', saf
 const RWY = [500, 750, 1000, 1500, 1750, 2250, 2500, 3000];   // runway metres each aircraft type needs
 const ZOOM = [{TW:44, TH:22, WP:11}, {TW:28, TH:14, WP:17}, {TW:16, TH:8, WP:16}];  // close / wide / whole map
 const CW = 660, CH = 430, HUD = 30;                           // viewport and the chrome bar on top
-const GW = 60, GH = 60, BS = 10, BW = GW/BS, M_TILE = 250, SS = 3, MIN_RUN = 2;
-const HALL0 = 2, HALL1 = 8, AIR = 9;                          // terminal interior rows, then the airside
-const GEO = 3;                                                // layout generation; older saves get migrated
-const START_LAND = [0, BW];                                   // you start owning the home block and the one behind it
+const GW = 60, GH = 60, BS = 12, BW = GW/BS, M_TILE = 250, SS = 3, MIN_RUN = 2;
+const HALL0 = 2, HALL1 = 5, AIR = 6;                          // terminal interior rows, then the airside
+const GEO = 4;                                                // layout generation; older saves get migrated
+const START_LAND = [0];                                       // you start on one 12x12 block and buy outward
 const DIRS = [[1,0],[-1,0],[0,1],[0,-1]];
 let zoom = 0, cam = {x:0, y:0, set:false};
 const TW = () => ZOOM[zoom].TW, TH = () => ZOOM[zoom].TH, WP = () => ZOOM[zoom].WP;
@@ -750,7 +750,7 @@ function landInfo(){
 const hallW = () => landInfo().hx1 + 1;                       // the hall runs the width of the blocks you own in row 1
 const nPlots = () => Math.max(1, hallW() - 1);
 const landRing = b => (b % BW) + ((b / BW)|0);
-const landCost = b => ({cash: Math.round(15000 * Math.pow(1.6, landRing(b))), tok: Math.max(0, landRing(b) - 2)});
+const landCost = b => ({cash: Math.round(20000 * Math.pow(1.7, landRing(b))), tok: Math.max(0, landRing(b) - 2)});
 function buyableLand(){                                       // locked blocks touching one you already own
   const out = new Set();
   for(let b = 0; b < BW*BW; b++){
@@ -903,9 +903,14 @@ const ENTRY = () => [hallW()-1.5, HALL0 + 0.5];
 
 function seedHall(){
   G.fac = {};
-  G.fac[tkey(4, 3)] = {k:'checkin', q:[]};
-  G.fac[tkey(4, 6)] = {k:'security', q:[]};
+  G.fac[tkey(7, 3)] = {k:'checkin', q:[]};                    // passengers come in at the right and work left
+  G.fac[tkey(3, 4)] = {k:'security', q:[]};
 }
+const freeHallTile = () => {
+  for(let gy = HALL0; gy <= HALL1; gy++) for(let gx = 0; gx < hallW(); gx++)
+    if(!G.fac[tkey(gx, gy)]) return [gx, gy];
+  return null;
+};
 function ensureHall(){
   if(!G.fac) seedHall();
   for(const j in G.fac){
@@ -1007,29 +1012,45 @@ const paxHappy = () => pax.length ? pax.reduce((s, p) => s + p.mood, 0)/pax.leng
 /* --- airport setup and migration --- */
 function ensureAirport(){
   G.layout = G.layout || {}; G.rwBusy = G.rwBusy || {};
+  ensureHall();
+  if(!G.tiles || !G.stands) seedAirport();
+  else migrateGeo();
   if(Object.values(G.layout).some(p => p >= nPlots())) G.layout = {};
   const used = new Set(Object.values(G.layout));
   for(const id of BUILD) if(G.upg[id] && G.layout[id] == null){
     let p = 0; while(used.has(p)) p++;
     G.layout[id] = p; used.add(p);
   }
-  ensureHall();
-  if(!G.tiles || !G.stands){ seedAirport(); return; }
-  if((G.geo||0) < 2){                                   // older saves: slide the airside below the new hall
+}
+function migrateGeo(){
+  if((G.geo||0) < 2){                                   // older saves: slide the airside below the hall
     const shift = 5, t = {};
     for(const k in G.tiles){ const [gx, gy] = unkey(+k); t[tkey(gx, gy + shift)] = G.tiles[k]; }
     G.tiles = t;
     G.stands = G.stands.map(s => ({x:s.x, y:s.y + shift}));
     G.geo = 2; invalidate();
   }
-  if((G.geo||0) < GEO){                                 // land blocks: keep every block the old airport sat on
-    const own = (gx, gy) => { if(gx >= 0 && gx < GW && gy >= 0 && gy < GH) G.land[bIdx(gx, gy)] = 1; };
-    for(const k in G.tiles){ const [gx, gy] = unkey(+k); own(gx, gy); }
-    for(const st of G.stands){ own(st.x, st.y); own(st.x+SS-1, st.y+SS-1); }
-    for(const j in G.fac){ const [gx, gy] = unkey(+j); own(gx, gy); }
-    for(const p of Object.values(G.layout)) own(p+1, 0);
-    G.geo = GEO; invalidate();
+  if((G.geo||0) >= GEO) return;
+  const old = G.land, own = (gx, gy) => { if(gx >= 0 && gx < GW && gy >= 0 && gy < GH) G.land[bIdx(gx, gy)] = 1; };
+  G.land = {0:1};                                       // block size changed: re-derive ownership from the map
+  if((G.geo||0) === 3) for(const b in old){             // land bought as 10x10 blocks, re-owned as 12x12 ones
+    const bx = +b % 6, by = (+b / 6)|0;
+    for(const [dx, dy] of [[0,0],[9,0],[0,9],[9,9]]) own(bx*10 + dx, by*10 + dy);
   }
+  for(const k in G.tiles){ const [gx, gy] = unkey(+k); own(gx, gy); }
+  for(const st of G.stands){ own(st.x, st.y); own(st.x+SS-1, st.y+SS-1); }
+  for(const j in G.fac){ const [gx, gy] = unkey(+j); own(gx, gy); }
+  for(const p of Object.values(G.layout)) own(p+1, 0);
+  landC = undefined;
+  for(const j of Object.keys(G.fac)){                   // the hall is shallower now: rescue anything outside it
+    const [gx, gy] = unkey(+j);
+    if(gy >= HALL0 && gy <= HALL1 && open(gx, gy)) continue;
+    const spot = freeHallTile();
+    if(spot) G.fac[tkey(spot[0], spot[1])] = G.fac[j];
+    else G.cash += FAC[G.fac[j].k].cost*0.5;
+    delete G.fac[j];
+  }
+  G.geo = GEO; invalidate();
 }
 function seedAirport(){
   G.tiles = {}; G.stands = []; G.geo = GEO;
@@ -1047,7 +1068,7 @@ function seedAirport(){
     for(let gx = 0; gx <= maxx; gx++) put(gx, lane2, 'taxi');
     for(let gy = lane+1; gy < lane2; gy++) put(W-1, gy, 'taxi');
   }
-  const down = rowB ? lane2 : lane, rwy = down + 3;
+  const down = rowB ? lane2 : lane, rwy = down + 2;
   for(let gy = down+1; gy < rwy; gy++) put(0, gy, 'taxi');
   const need = G.fleet.reduce((m, a) => Math.max(m, RWY[a.type]), 500);
   const len = clamp(Math.ceil(need/M_TILE), 3, W);
