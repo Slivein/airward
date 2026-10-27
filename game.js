@@ -627,9 +627,13 @@ function updateUI(){
 /* ---------- UI: tabs ---------- */
 const TABS = [['airport','🛫 Airport'],['overview','🌍 Network'],['fleet','✈️ Fleet'],['routes','🗺️ Routes'],
               ['fuel','⛽ Fuel & Carbon'],['auto','🤖 Automation'],['company','🏆 Company']];
+const SPEEDS = [[0,'⏸','Pause'],[1,'▶','Normal speed'],[2,'2×','Double speed'],[4,'4×','Quadruple speed']];
+let speed = 1;                                 // session only: a reload always comes back at normal speed
 
 function buildNav(){
-  $('#nav').innerHTML = TABS.map(([id,l]) => `<button data-act="tab" data-arg="${id}" class="${id===tab?'on':''}">${l}</button>`).join('');
+  $('#nav').innerHTML = TABS.map(([id,l]) => `<button data-act="tab" data-arg="${id}" class="${id===tab?'on':''}">${l}</button>`).join('')
+    + '<span class="navgap"></span>'
+    + SPEEDS.map(([v,l,t]) => `<button class="spd ${v===speed?'on':''}" data-act="speed" data-arg="${v}" title="${t}">${l}</button>`).join('');
 }
 function build(){
   buildNav();
@@ -1276,6 +1280,10 @@ function drawHUD(x){
   x.fillStyle = '#fff'; x.font = 'bold 13px monospace';
   x.fillText(`${C.mo}mo ${C.dy}d`, 52, 21);
   x.fillStyle = '#9fb6e8'; x.fillText(`${C.hh}:${C.mm}`, 126, 21);
+  if(speed !== 1){
+    x.fillStyle = speed ? '#4be3a3' : '#ffd166';
+    x.fillText(speed ? speed + '×' : 'PAUSED', 400, 21);
+  }
   x.fillStyle = '#0e1030'; x.fillRect(CW-212, 5, 204, HUD-10);
   x.textAlign = 'right'; x.fillStyle = '#ffe36b'; x.font = 'bold 15px monospace';
   x.fillText(money(G.cash) + 'G', CW-14, 21);
@@ -1750,6 +1758,7 @@ function drawSpark(){
 /* ---------- events ---------- */
 const ACT = {
   tab: a => { tab = a; build(); },
+  speed: a => { speed = +a; buildNav(); },
   buy: a => { if(buyAircraft(+a)) build(); },
   dispatch: a => { const ac = G.fleet.find(z=>z.id==a); if(ac && ac.state==='ready') tryDepart(ac); },
   check: a => { const ac = G.fleet.find(z=>z.id==a); if(ac && ['ready','grounded','nofuel','noroute'].includes(ac.state)) startCheck(ac); },
@@ -1861,7 +1870,9 @@ function main(){
   setInterval(() => {
     if(!G) return;
     const now = Date.now(); let dt = (now-last)/1000; last = now;
-    if(dt > 2) catchUp(Math.min(dt, OFFLINE_CAP)); else tick(dt);
+    if(!speed){}                                       // paused: the clock on the wall keeps going, the airline does not
+    else if(dt > 2) catchUp(Math.min(dt, OFFLINE_CAP));  // woke from a sleeping tab: real time only, never multiplied
+    else for(let i = 0; i < speed; i++) tick(dt);
     updateUI();
     saveT += dt; if(saveT >= 5){ saveT = 0; save(); }
   }, 100);

@@ -14,6 +14,7 @@ An idle airline manager. Start a brand, build a pixel-art airport, buy aircraft,
   - **Runway** — drag sideways to lay tiles; the run stays in the row you started on. Every line of 2+ tiles is its own runway at 250 m per tile, so you can build several. Bigger aircraft need longer runways. A stand uses the longest runway its taxiways reach, and one runway launches one aircraft at a time, so a second runway clears a departure queue.
   - **Demolish** — remove a tile or stand; tiles refund half.
   - **Rebuild airport layout** (in the Select panel) — clears the airside and lays the current standard layout, sized to your fleet. You pay full price for the new tiles and the old ones are not refunded.
+- **Speed:** the buttons beside the tabs pause the game or run it at normal, 2x or 4x. Pause really stops everything — no time passes for the airline — and the speed resets to normal when you reload. Time away from the game always counts at normal speed.
 - **Early game is manual:** dispatch flights, buy fuel, run maintenance checks and offset carbon yourself.
 - **Automation unlocks by level:** airport operations (3), fuel procurement (5), maintenance (7), carbon offsets (9), network planning (12). They stay unlocked after your first IPO.
 - **Fuel and carbon:** fuel prices swing with the market; CO₂ above your allowance is hit with a levy.

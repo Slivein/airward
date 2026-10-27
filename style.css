@@ -21,7 +21,7 @@ header{padding:16px 0 10px}
 .stat small{display:block;color:var(--muted);font-size:14px}
 
 /* nav */
-nav{display:flex;gap:6px;overflow-x:auto;padding:6px 0 10px;margin-bottom:14px;position:sticky;top:0;background:var(--bg);z-index:5;border-bottom:1px solid var(--line)}
+nav{display:flex;flex-wrap:wrap;gap:6px;padding:6px 0 10px;margin-bottom:14px;position:sticky;top:0;background:var(--bg);z-index:5;border-bottom:1px solid var(--line)}
 nav button{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 16px;cursor:grab;color:var(--muted);white-space:nowrap;font-size:16px;font-weight:600}
 nav button.on{background:var(--brand);border-color:var(--brand);color:#06111f}
 nav button:hover:not(.on){color:var(--text);border-color:var(--brand)}
@@ -133,3 +133,5 @@ th{color:var(--muted);font-weight:600;font-size:14px}
 .row.tools{gap:6px;margin-bottom:7px;align-items:center}
 .row.tools:last-child{margin-bottom:0}
 .glab{font-size:13px;font-weight:700;color:var(--muted);min-width:64px}
+.navgap{flex:1 1 auto;min-width:8px}
+nav button.spd{padding:10px 13px;min-width:46px;font-size:15px}
