@@ -61,7 +61,36 @@ const EVENTS = [
   {t:'🎉 Travel boom! Demand +25% for 90s.',               f:()=>{G.evt.demandUntil=G.time+90}},
   {t:'🪧 Ground staff strike — turnarounds doubled for 45s.', f:()=>{G.evt.strikeUntil=G.time+45}},
   {t:'🌐 Climate summit — carbon credits +50% for 120s.',  f:()=>{G.evt.carbonUntil=G.time+120}},
+  {t:'🎟️ Airshow charter signed — 2 flight tokens!',       f:()=>{G.tok+=2}},
 ];
+
+/* Flight tokens: the second currency, spent on land far from your terminal. */
+const TOKEN = '🎟️', TOKEN_MAP = '🗺️';
+const ACH = [
+  {id:'fly10',   t:'10 flights flown',       n:1, ok:()=>G.flights>=10},
+  {id:'fly100',  t:'100 flights flown',      n:2, ok:()=>G.flights>=100},
+  {id:'fly500',  t:'500 flights flown',      n:3, ok:()=>G.flights>=500},
+  {id:'fly2k',   t:'2,000 flights flown',    n:5, ok:()=>G.flights>=2000},
+  {id:'net5',    t:'5 routes open',          n:1, ok:()=>Object.keys(G.routes).length>=5},
+  {id:'net15',   t:'15 routes open',         n:3, ok:()=>Object.keys(G.routes).length>=15},
+  {id:'net30',   t:'30 routes open',         n:5, ok:()=>Object.keys(G.routes).length>=30},
+  {id:'fleet10', t:'10 aircraft based',      n:2, ok:()=>G.fleet.length>=10},
+  {id:'fleet25', t:'25 aircraft based',      n:4, ok:()=>G.fleet.length>=25},
+  {id:'rev1m',   t:'$1M lifetime revenue',   n:2, ok:()=>G.lifetime>=1e6},
+  {id:'rev10m',  t:'$10M lifetime revenue',  n:4, ok:()=>G.lifetime>=1e7},
+  {id:'rev100m', t:'$100M lifetime revenue', n:6, ok:()=>G.lifetime>=1e8},
+  {id:'star',    t:'Brand rating 80 or more',n:3, ok:()=>rating()>=80},
+  {id:'happy',   t:'Terminal mood 90% or more', n:2, ok:()=>pax.length>=10 && paxHappy()>=90},
+  {id:'ipo',     t:'Went public',            n:5, ok:()=>G.ipos>=1},
+];
+function achStep(){
+  for(const a of ACH) if(!G.ach[a.id] && a.ok()){
+    G.ach[a.id] = 1; G.tok += a.n;
+    logMsg('🏅 ' + a.t + ' — +' + a.n + ' flight token' + (a.n>1?'s':'') + '.');
+    toast('🏅 ' + a.t + ' · +' + a.n + ' ' + TOKEN);
+    dirty = true;
+  }
+}
 
 const COLORS = ['#3aa0ff','#ff6b6b','#3ddc97','#ffc857','#b388ff','#ff8fd0','#4dd0e1','#ff9a3c'];
 
@@ -184,6 +213,8 @@ function newGame(brand, prev){
     v:1, brand, cash:60000, xp:0, level:1, lifetime:0, allTime: prev ? prev.allTime : 0,
     shares: prev ? prev.shares : 0, ipos: prev ? prev.ipos : 0,
     fuel:400, fuelMult:1, fuelHist:[1], creditMult:1, debt:0, totalCO2:0, totalOffset:0,
+    tok: prev ? prev.tok||0 : 0, ach: prev ? prev.ach||{} : {},
+    land: prev && prev.land ? prev.land : Object.fromEntries(START_LAND.map(b => [b, 1])),
     ticket:1, upg:{}, routes:{}, fleet:[], nextId:101, time:0, evt:{}, nextEvt:90, taxT:20,
     mAcc:0, xAcc:0, charterCD:0, flights:0, rate:0, lfEma:0.6, acc:0, log:[], lastSave:Date.now(),
     auto:{dispatch:{on:true}, fuel:{on:true, below:1.0}, check:{on:true, below:55},
@@ -300,11 +331,12 @@ function grantXP(x){
   while(G.xp >= xpNeed(G.level)){
     G.xp -= xpNeed(G.level); G.level++;
     const bonus = Math.round(2000 * Math.pow(G.level, 1.8));
-    G.cash += bonus;
-    logMsg(`⭐ Level ${G.level} reached! Bonus ${money(bonus)}.`);
-    toast(`⭐ Level ${G.level}! +${money(bonus)}`);
+    const tk = 1 + (G.level % 5 === 0 ? 2 : 0);
+    G.cash += bonus; G.tok += tk;
+    logMsg(`⭐ Level ${G.level} reached! Bonus ${money(bonus)} and ${tk} flight token${tk>1?'s':''}.`);
+    toast(`⭐ Level ${G.level}! +${money(bonus)} · +${tk} ${TOKEN}`);
     if(tab === 'airport') showResult(`Level ${G.level}`, [
-      ['Bonus', money(bonus)], ['Flights flown', fmt(G.flights)],
+      ['Bonus', money(bonus)], ['Flight tokens', '+' + tk], ['Flights flown', fmt(G.flights)],
       ['Passengers in terminal', pax.length], ['Terminal mood', Math.round(paxHappy()) + '%'],
       ['Brand rating', Math.round(rating()) + '/100']], 'Your airline is growing.');
     for(const k in AUTO) if(G.level === autoReq(k) && G.ipos === 0) toast(`🔓 Unlocked: ${AUTO[k].name}`);
@@ -478,7 +510,7 @@ function tick(dt, offline){
   for(const a of G.fleet) stepAircraft(a, dt);
   autoOffsetStep();
   G.taxT -= dt; if(G.taxT <= 0){ G.taxT = 20; carbonLevy(); }
-  G.xAcc += dt; if(G.xAcc >= 3){ G.xAcc = 0; autoExpandStep(); }
+  G.xAcc += dt; if(G.xAcc >= 3){ G.xAcc = 0; autoExpandStep(); achStep(); }
   G.charterCD = Math.max(0, G.charterCD - dt);
   G.rate = G.rate*Math.pow(0.97, dt) + (G.acc/Math.max(dt,1e-3))*(1-Math.pow(0.97, dt));
   G.acc = 0;
@@ -492,7 +524,13 @@ function catchUp(sec){
 /* ---------- save / load ---------- */
 function save(){ if(!G) return; G.lastSave = Date.now(); try{ localStorage.setItem(SAVE_KEY, JSON.stringify(G)); }catch(e){} }
 function load(){
-  try{ const s = localStorage.getItem(SAVE_KEY); if(!s) return false; G = JSON.parse(s); return !!G && G.v===1; }catch(e){ return false; }
+  try{
+    const s = localStorage.getItem(SAVE_KEY); if(!s) return false;
+    G = JSON.parse(s); if(!G || G.v !== 1) return false;
+    G.tok = G.tok || 0; G.ach = G.ach || {};
+    if(!G.land || !Object.keys(G.land).length){ G.land = {}; for(const b of START_LAND) G.land[b] = 1; }
+    return true;
+  }catch(e){ return false; }
 }
 
 /* ---------- UI: binds ---------- */
@@ -507,6 +545,8 @@ function bindVal(key){
     case 'fuel': return `${fmt(G.fuel)}/${fmt(tankCap())}`;
     case 'debt': return G.debt.toFixed(1)+' t';
     case 'level': return G.level;
+    case 'tok': return G.tok + ' ' + TOKEN;
+    case 'toknote': return ACH.filter(a => G.ach[a.id]).length + '/' + ACH.length + ' achievements';
     case 'xp': return `${fmt(G.xp)}/${fmt(xpNeed(G.level))} XP`;
     case 'flights': return fmt(G.flights);
     case 'lf': return Math.round(G.lfEma*100)+'%';
@@ -570,7 +610,8 @@ function updateUI(){
   document.querySelectorAll('[data-html]').forEach(el => cache(el, 0, bindVal(el.dataset.html), 'innerHTML'));
   document.querySelectorAll('[data-w]').forEach(el => { const w = widthVal(el.dataset.w).toFixed(1)+'%'; if(el._v!==w){ el._v=w; el.style.width=w; } });
   document.querySelectorAll('[data-cost]').forEach(el => {
-    el.disabled = G.cash < +el.dataset.cost || (el.dataset.gate && G.fleet.length >= gates());
+    el.disabled = G.cash < +el.dataset.cost || (el.dataset.gate && G.fleet.length >= gates())
+      || (el.dataset.tok && G.tok < +el.dataset.tok);
   });
   document.querySelectorAll('.ac').forEach(el => {
     const a = G.fleet.find(z=>z.id==el.dataset.id); if(!a) return;
@@ -681,20 +722,61 @@ function bRoutes(){
 const BUILD = Object.keys(UPG).filter(id => id !== 'gates');
 const BCOL = {tank:'#b7bdc8', crew:'#e0a050', term:'#6fa8dc', eng:'#9aa1ad', saf:'#7ccf7a', forest:'#3f9a45', shop:'#e8645f'};
 const RWY = [500, 750, 1000, 1500, 1750, 2250, 2500, 3000];   // runway metres each aircraft type needs
-const ZOOM = [{TW:44, TH:22, WP:11}, {TW:28, TH:14, WP:17}];  // close / wide
+const ZOOM = [{TW:44, TH:22, WP:11}, {TW:28, TH:14, WP:17}, {TW:16, TH:8, WP:16}];  // close / wide / whole map
 const CW = 660, CH = 430, HUD = 30;                           // viewport and the chrome bar on top
-const GW = 24, GH = 26, PLOTS = 12, M_TILE = 250, SS = 3, MIN_RUN = 2;
+const GW = 60, GH = 60, BS = 10, BW = GW/BS, M_TILE = 250, SS = 3, MIN_RUN = 2;
 const HALL0 = 2, HALL1 = 8, AIR = 9;                          // terminal interior rows, then the airside
-const GEO = 2;                                                // layout generation; older saves get shifted
+const GEO = 3;                                                // layout generation; older saves get migrated
+const START_LAND = [0, BW];                                   // you start owning the home block and the one behind it
 const DIRS = [[1,0],[-1,0],[0,1],[0,-1]];
 let zoom = 0, cam = {x:0, y:0, set:false};
 const TW = () => ZOOM[zoom].TW, TH = () => ZOOM[zoom].TH, WP = () => ZOOM[zoom].WP;
 const iso = (gx, gy, z = 0) => [cam.x + (gx-gy)*TW()/2, cam.y + (gx+gy)*TH()/2 - z];
 const bldH = lvl => (6 + 5*Math.min(4, 1 + Math.floor(lvl/3))) * TW()/26;
-const isPlot = (gx, gy) => gy === 0 && gx >= 1 && gx <= PLOTS;
+const bIdx = (gx, gy) => ((gy/BS)|0)*BW + ((gx/BS)|0);
+const owned = b => !!(G.land && G.land[b]);
+const open = (gx, gy) => gx >= 0 && gx < GW && gy >= 0 && gy < GH && owned(bIdx(gx, gy));
+let landC;                                                    // cached edges of the land you own
+function landInfo(){
+  if(landC) return landC;
+  let x1 = BS-1, y1 = BS-1, hx1 = BS-1;
+  for(const b in G.land){
+    const bx = +b % BW, by = (+b / BW)|0;
+    x1 = Math.max(x1, bx*BS + BS-1); y1 = Math.max(y1, by*BS + BS-1);
+    if(by === 0) hx1 = Math.max(hx1, bx*BS + BS-1);
+  }
+  return landC = {x1, y1, hx1};
+}
+const hallW = () => landInfo().hx1 + 1;                       // the hall runs the width of the blocks you own in row 1
+const nPlots = () => Math.max(1, hallW() - 1);
+const landRing = b => (b % BW) + ((b / BW)|0);
+const landCost = b => ({cash: Math.round(15000 * Math.pow(1.6, landRing(b))), tok: Math.max(0, landRing(b) - 2)});
+function buyableLand(){                                       // locked blocks touching one you already own
+  const out = new Set();
+  for(let b = 0; b < BW*BW; b++){
+    if(owned(b)) continue;
+    const bx = b % BW, by = (b/BW)|0;
+    for(const [dx, dy] of DIRS){
+      const nx = bx+dx, ny = by+dy;
+      if(nx >= 0 && nx < BW && ny >= 0 && ny < BW && owned(ny*BW + nx)){ out.add(b); break; }
+    }
+  }
+  return out;
+}
+function buyLand(b){
+  if(owned(b) || !buyableLand().has(b)) return false;
+  const c = landCost(b);
+  if(G.cash < c.cash){ toast('That block costs ' + money(c.cash) + '.'); return false; }
+  if(G.tok < c.tok){ toast('That block also needs ' + c.tok + ' flight tokens — you have ' + G.tok + '.'); return false; }
+  G.cash -= c.cash; G.tok -= c.tok; G.land[b] = 1; landC = undefined; invalidate();
+  logMsg(TOKEN_MAP + ' Bought land block ' + ((b%BW)+1) + '-' + (((b/BW)|0)+1) + ' for ' + money(c.cash) + (c.tok ? ' and ' + c.tok + ' tokens' : '') + '.');
+  toast(TOKEN_MAP + ' New land unlocked!');
+  return true;
+}
+const isPlot = (gx, gy) => gy === 0 && gx >= 1 && open(gx, gy);
 const plotAt = (gx, gy) => gx - 1;
-const inHall = (gx, gy) => gx >= 0 && gx < GW && gy >= HALL0 && gy <= HALL1;
-const inAir = (gx, gy) => gx >= 0 && gx < GW && gy >= AIR && gy < GH;
+const inHall = (gx, gy) => gy >= HALL0 && gy <= HALL1 && open(gx, gy);
+const inAir = (gx, gy) => gy >= AIR && gy < GH && open(gx, gy);
 let sel = null, mode = 'sel';
 let floats = [], pax = [], drag = null, paint = null;
 function showResult(title, rows, flavour){
@@ -721,7 +803,7 @@ const taxiCost = () => Math.round(1200 * (1 + 0.05*nTiles('taxi')));
 const runCost = () => Math.round(7000 * (1 + 0.07*nTiles('run')));
 const layCost = (n, base, g) => { let c = 0; for(let k = 0; k < n; k++) c += Math.round(base*(1 + g*k)); return c; };
 let rwCache, pathCache = {};
-function invalidate(){ rwCache = undefined; pathCache = {}; }
+function invalidate(){ rwCache = undefined; pathCache = {}; landC = undefined; }
 
 function runways(){
   if(rwCache !== undefined) return rwCache;
@@ -817,7 +899,7 @@ function nearPassive(p, kind){
 const facAt = (gx, gy) => G.fac[tkey(gx, gy)];
 const facList = k => Object.keys(G.fac).filter(j => G.fac[j].k === k).map(j => ({key:+j, f:G.fac[j], gx:(+j/100|0), gy:(+j)%100}));
 const facCount = k => facList(k).length;
-const ENTRY = () => [GW-1.5, HALL0 + 0.5];
+const ENTRY = () => [hallW()-1.5, HALL0 + 0.5];
 
 function seedHall(){
   G.fac = {};
@@ -925,7 +1007,7 @@ const paxHappy = () => pax.length ? pax.reduce((s, p) => s + p.mood, 0)/pax.leng
 /* --- airport setup and migration --- */
 function ensureAirport(){
   G.layout = G.layout || {}; G.rwBusy = G.rwBusy || {};
-  if(Object.values(G.layout).some(p => p >= PLOTS)) G.layout = {};
+  if(Object.values(G.layout).some(p => p >= nPlots())) G.layout = {};
   const used = new Set(Object.values(G.layout));
   for(const id of BUILD) if(G.upg[id] && G.layout[id] == null){
     let p = 0; while(used.has(p)) p++;
@@ -933,32 +1015,43 @@ function ensureAirport(){
   }
   ensureHall();
   if(!G.tiles || !G.stands){ seedAirport(); return; }
-  if(G.geo !== GEO){                                    // older saves: slide the airside below the new hall
+  if((G.geo||0) < 2){                                   // older saves: slide the airside below the new hall
     const shift = 5, t = {};
     for(const k in G.tiles){ const [gx, gy] = unkey(+k); t[tkey(gx, gy + shift)] = G.tiles[k]; }
     G.tiles = t;
     G.stands = G.stands.map(s => ({x:s.x, y:s.y + shift}));
+    G.geo = 2; invalidate();
+  }
+  if((G.geo||0) < GEO){                                 // land blocks: keep every block the old airport sat on
+    const own = (gx, gy) => { if(gx >= 0 && gx < GW && gy >= 0 && gy < GH) G.land[bIdx(gx, gy)] = 1; };
+    for(const k in G.tiles){ const [gx, gy] = unkey(+k); own(gx, gy); }
+    for(const st of G.stands){ own(st.x, st.y); own(st.x+SS-1, st.y+SS-1); }
+    for(const j in G.fac){ const [gx, gy] = unkey(+j); own(gx, gy); }
+    for(const p of Object.values(G.layout)) own(p+1, 0);
     G.geo = GEO; invalidate();
   }
 }
 function seedAirport(){
   G.tiles = {}; G.stands = []; G.geo = GEO;
-  const want = clamp(G.fleet.length || 1, 1, Math.min(gates(), 13));
-  const rowA = Math.min(want, 7), rowB = Math.max(0, want - 7);
+  const W = hallW(), per = Math.max(1, Math.floor((W-1)/3));
+  const put = (gx, gy, t) => { if(inAir(gx, gy)) G.tiles[tkey(gx, gy)] = t; };
+  const want = clamp(G.fleet.length || 1, 1, Math.min(gates(), per*2));
+  const rowA = Math.min(want, per), rowB = Math.max(0, want - per);
   for(let i = 0; i < rowA; i++) G.stands.push({x: 1 + i*3, y: AIR});
   for(let i = 0; i < rowB; i++) G.stands.push({x: 1 + i*3, y: AIR + 4});
+  G.stands = G.stands.filter(st => inAir(st.x, st.y) && inAir(st.x+SS-1, st.y+SS-1));
   const lane = AIR + 3, lane2 = AIR + 7;
-  const maxx = rowB ? GW-1 : Math.min(GW-1, 1 + rowA*3);
-  for(let gx = 0; gx <= maxx; gx++) G.tiles[tkey(gx, lane)] = 'taxi';
+  const maxx = rowB ? W-1 : Math.min(W-1, 1 + rowA*3);
+  for(let gx = 0; gx <= maxx; gx++) put(gx, lane, 'taxi');
   if(rowB){
-    for(let gx = 0; gx <= maxx; gx++) G.tiles[tkey(gx, lane2)] = 'taxi';
-    for(let gy = lane+1; gy < lane2; gy++) G.tiles[tkey(GW-1, gy)] = 'taxi';
+    for(let gx = 0; gx <= maxx; gx++) put(gx, lane2, 'taxi');
+    for(let gy = lane+1; gy < lane2; gy++) put(W-1, gy, 'taxi');
   }
   const down = rowB ? lane2 : lane, rwy = down + 3;
-  for(let gy = down+1; gy < rwy; gy++) G.tiles[tkey(0, gy)] = 'taxi';
+  for(let gy = down+1; gy < rwy; gy++) put(0, gy, 'taxi');
   const need = G.fleet.reduce((m, a) => Math.max(m, RWY[a.type]), 500);
-  const len = clamp(Math.ceil(need/M_TILE), 3, GW);
-  for(let gx = 0; gx < len; gx++) G.tiles[tkey(gx, rwy)] = 'run';
+  const len = clamp(Math.ceil(need/M_TILE), 3, W);
+  for(let gx = 0; gx < len; gx++) put(gx, rwy, 'run');
   invalidate();
 }
 // Charged in full and never refunded, so it can't be looped against demolition refunds for free cash.
@@ -1175,7 +1268,7 @@ function drawHUD(x){
 
 /* --- main render --- */
 function centreCam(){
-  const [X, Y] = iso(GW/2, HALL1 + 1.5);
+  const [X, Y] = iso(hallW()/2, HALL1 + 1.5);
   cam.x += CW/2 - X; cam.y += (CH+HUD)/2 - Y + 20; cam.set = true;
 }
 function drawScene(dt){
@@ -1188,10 +1281,16 @@ function drawScene(dt){
   const painting = mode !== 'sel' && mode !== 'del';
   x.fillStyle = '#2d6b35'; x.fillRect(0, 0, CW, CH);
 
-  for(let gy = 0; gy < GH; gy++) for(let gx = 0; gx < GW; gx++){
+  const LI = landInfo(), SALE = buyableLand();
+  const gx1 = Math.min(GW-1, LI.x1 + BS), gy1 = Math.min(GH-1, LI.y1 + BS);
+  for(let gy = 0; gy <= gy1; gy++) for(let gx = 0; gx <= gx1; gx++){
     const [sx, sy] = iso(gx, gy);
     if(sx < -TW() || sx > CW + TW() || sy < -TH()*4 || sy > CH + TH()*6) continue;   // cull offscreen
     const ch = (gx+gy) & 1;
+    if(!open(gx, gy)){
+      if(SALE.has(bIdx(gx, gy))) tile(x, gx, gy, 1, 1, ch ? '#2b5f33' : '#27582f', ch ? '#2b5f33' : '#27582f');
+      continue;
+    }
     let f;
     if(gy === 0) f = ch ? '#6cc15a' : '#62b650';
     else if(gy === 1) f = ch ? '#d9d0b4' : '#cdc4a8';
@@ -1224,9 +1323,26 @@ function drawScene(dt){
     x.fillText(i+1, X, Y + 22*s);
     if(sel && sel.stand === i){ x.lineWidth = 2; tile(x, st.x, st.y, SS, SS, null, '#ffe36b'); }
   }
+  for(const b of SALE){                                   // price tag on each block you could buy next
+    const bx = b % BW, by = (b/BW)|0, c = landCost(b);
+    const [LX, LY] = iso(bx*BS + BS/2, by*BS + BS/2);
+    if(LX < -90 || LX > CW + 90 || LY < -40 || LY > CH + 40) continue;
+    x.lineWidth = 2;
+    tile(x, bx*BS+.25, by*BS+.25, BS-.5, BS-.5, null, sel && sel.land === b ? '#ffe36b' : 'rgba(255,255,255,.28)');
+    x.textAlign = 'center';
+    x.fillStyle = 'rgba(8,20,14,.72)'; x.fillRect(LX-40*s, LY-13*s, 80*s, c.tok ? 26*s : 17*s);
+    x.fillStyle = G.cash >= c.cash ? '#ffe36b' : '#ff9a9a';
+    x.font = `bold ${Math.round(11*s)}px monospace`;
+    x.fillText(money(c.cash), LX, LY);
+    if(c.tok){
+      x.fillStyle = G.tok >= c.tok ? '#9fe8ff' : '#ff9a9a';
+      x.font = `bold ${Math.round(10*s)}px monospace`;
+      x.fillText(TOKEN + ' ' + c.tok, LX, LY + 11*s);
+    }
+  }
   // landside row: upgrade buildings and trees
   const bAt = {}; BUILD.forEach(id => { bAt[G.layout[id]] = id; });
-  for(let gx = 0; gx < GW; gx++){
+  for(let gx = 0; gx < hallW(); gx++){
     if(isPlot(gx, 0)){
       const p = plotAt(gx, 0), id = bAt[p];
       if(id) drawBuilding(x, gx, 0, id, G.upg[id], night);
@@ -1239,10 +1355,11 @@ function drawScene(dt){
     } else drawTree(x, gx, 0);
   }
   // terminal back wall, with the entrance doors at the right
-  box(x, 0, HALL0-0.14, GW, 0.14, 20*s, '#e4ecf6', '#cdd8e8', '#9fb0c8');
+  const HW = hallW();
+  box(x, 0, HALL0-0.14, HW, 0.14, 20*s, '#e4ecf6', '#cdd8e8', '#9fb0c8');
   box(x, -0.14, HALL0-0.14, 0.14, HALL1-HALL0+1.14, 20*s, '#e4ecf6', '#cdd8e8', '#9fb0c8');
-  box(x, GW, HALL0-0.14, 0.14, HALL1-HALL0+1.14, 20*s, '#dbe4f0', '#c3cfe0', '#95a6be');
-  const [EX, EY] = iso(GW-2, HALL0);
+  box(x, HW, HALL0-0.14, 0.14, HALL1-HALL0+1.14, 20*s, '#dbe4f0', '#c3cfe0', '#95a6be');
+  const [EX, EY] = iso(HW-2, HALL0);
   x.fillStyle = night > .3 ? '#ffe9a0' : '#5b8fd4'; x.fillRect(EX-10*s, EY-16*s, 26*s, 14*s);
   // interior contents and people, painter-ordered by depth
   const items = [];
@@ -1289,7 +1406,7 @@ function toolbarHTML(){
     const lab = g[0] ? '<span class="glab">' + g[0] + '</span>' : '';
     const btns = g[1].map(z => '<button class="btn sm ' + (z[0] === mode ? 'pri' : '') +
       '" data-act="mode" data-arg="' + z[0] + '">' + modeLabel(z[0]) + '</button>').join('');
-    const view = g[0] ? '' : '<button class="btn sm" data-act="zoom">' + (zoom ? '\u{1F50D} Zoom in' : '\u{1F50D} Zoom out') +
+    const view = g[0] ? '' : '<button class="btn sm" data-act="zoom">\u{1F50D} ' + ['Close', 'Wide', 'Whole map'][zoom] +
       '</button><button class="btn sm" data-act="centre">\u2316 Centre</button>';
     return '<div class="row tools">' + lab + btns + view + '</div>';
   }).join('');
@@ -1300,6 +1417,7 @@ const evPos = (e, c) => { const r = c.getBoundingClientRect(); return [(e.client
 function onceToast(m){ if(!paint) return toast(m); if(!paint.said){ paint.said = 1; toast(m); } }
 function applyBuild(gx, gy){
   const toast = onceToast;                                    // shadows the global: one message per drag
+  if(!open(gx, gy)) return toast('You do not own that land — switch to Select and tap the block to buy it.');
   if(FAC[mode]){
     if(!inHall(gx, gy)) return toast('Interior facilities go inside the terminal hall.');
     if(facAt(gx, gy)) return toast('Something is already there.');
@@ -1349,6 +1467,10 @@ function sceneClick(e){
     if(dy === 0) sel = bld ? {bld} : {plot:p};
   }
   if(!sel && inHall(gx, gy) && facAt(gx, gy)) sel = {fac:tkey(gx, gy)};
+  if(!sel && !open(gx, gy)){
+    const b = bIdx(gx, gy);
+    if(buyableLand().has(b)) sel = {land:b};
+  }
   if(!sel){
     const i = standIdxAt(gx, gy);
     if(i >= 0 && G.fleet[i]) sel = {ac:G.fleet[i].id};
@@ -1408,8 +1530,9 @@ function hallStatus(){
     ${warn.length ? `<p class="bad">⚠ ${warn.join(' and ')} — passengers give up and walk out.</p>` : ''}`;
 }
 function modeHelp(){
-  const info = `<p>Runways (${runways().length}): ${rwyList()}</p>` + hallStatus();
-  if(mode === 'sel') return info + '<p class="muted">Drag the view to pan. Tap a facility, plane, stand or runway for details. Pick a tool above to build, then drag to lay a whole run at once.</p>';
+  const info = `<p>Land: <b>${Object.keys(G.land).length}</b>/${BW*BW} blocks · <b>${G.tok}</b> ${TOKEN} flight tokens<br>
+    Runways (${runways().length}): ${rwyList()}</p>` + hallStatus();
+  if(mode === 'sel') return info + '<p class="muted">Drag the view to pan. Tap a facility, plane, stand or runway for details, or tap a priced block of land to buy it. Pick a tool above to build, then drag to lay a whole run at once.</p>';
   if(FAC[mode]){ const D = FAC[mode];
     return info + `<p class="muted">${D.desc} Drag across empty tiles inside the terminal hall. <b>${money(D.cost)}</b> each${D.fee ? `, earns about <b>${money(paxFee(mode))}</b> per customer` : ''}.</p>`; }
   if(mode === 'stand') return info + `<p class="muted">Tap the airside to drop a ${SS}x${SS} stand. Stands used: <b>${G.stands.length}/${gates()}</b>.</p>`;
@@ -1421,6 +1544,14 @@ function panelHTML(){
   ensureAirport();
   const s = sel;
   if(mode !== 'sel') return `<div class="card"><h3>${MODES.find(m => m[0]===mode)[1]}</h3>${modeHelp()}</div>`;
+  if(s && s.land != null){
+    const c = landCost(s.land), bx = s.land % BW + 1, by = (s.land/BW|0) + 1;
+    return `<div class="card"><h3>${TOKEN_MAP} Land block ${bx}-${by}</h3>
+      <p class="muted">${BS}×${BS} tiles of empty ground.${(s.land/BW|0) === 0 ? ' This row widens the terminal hall and the landside plots.' : ' Room for more stands, taxiways and runways.'}</p>
+      <p>Price: <b>${money(c.cash)}</b>${c.tok ? ` plus <b>${c.tok} ${TOKEN} flight tokens</b> — you hold <b>${G.tok}</b>` : ''}</p>
+      <button class="btn pri" data-act="land" data-arg="${s.land}" data-cost="${c.cash}"${c.tok ? ` data-tok="${c.tok}"` : ''}>Buy this block</button>
+      <p class="muted small" style="margin-top:8px">Blocks further from your terminal cost more, and anything three blocks out also costs flight tokens. Tokens come from levels, achievements and the odd charter contract.</p></div>`;
+  }
   if(s && s.fac != null && G.fac[s.fac]){
     const f = G.fac[s.fac], D = FAC[f.k];
     return `<div class="card"><h3>${D.icon} ${D.name}</h3><p class="muted">${D.desc}</p>
@@ -1528,6 +1659,10 @@ function bCompany(){
     <p>Current: <b data-bind="shares"></b><br>Lifetime revenue this run: <b>${money(G.lifetime)}</b><br>IPO would grant: <b class="good" data-bind="ipogain"></b></p>
     <button class="btn pri" data-act="ipo" ${canIPO?'':'disabled'}>Go public</button>
     ${canIPO?'':'<span class="muted"> Needs level 10 and ≥ $250K lifetime revenue.</span>'}</div>
+  <div class="card"><h3>${TOKEN} Flight tokens</h3>
+    <p class="muted">Tokens buy land far from your terminal. You earn one for every level (three every fifth), one lump per achievement below, and the odd charter contract.</p>
+    <p>You hold: <b>${G.tok} ${TOKEN}</b></p>
+    <table class="krows">${ACH.map(a => `<tr><td>${G.ach[a.id] ? '✅' : '⬜'} ${a.t}</td><td><b>${a.n} ${TOKEN}</b></td></tr>`).join('')}</table></div>
   <div class="card"><h3>💾 Save</h3><p class="muted">Autosaves every few seconds. Offline progress (up to 12h) only counts for what you have automated!</p>
     <div class="row"><button class="btn" data-act="saveNow">Save now</button><button class="btn danger" data-act="reset">Delete save & restart</button></div></div>
   </div>`;
@@ -1601,7 +1736,8 @@ const ACT = {
   checkAll: () => G.fleet.forEach(ac => { if(['ready','grounded'].includes(ac.state) && ac.cond<95) startCheck(ac); }),
   sell: a => { const i = G.fleet.findIndex(z=>z.id==a); if(i<0 || G.fleet[i].state==='flying') return; G.cash += sellValue(G.fleet[i]); G.fleet.splice(i,1); build(); },
   mode: a => { mode = a; sel = null; build(); },
-  zoom: () => { zoom = zoom ? 0 : 1; cam.set = false; build(); },
+  land: a => { if(buyLand(+a)){ sel = null; build(); } },
+  zoom: () => { zoom = (zoom+1) % ZOOM.length; cam.set = false; build(); },
   centre: () => { cam.set = false; build(); },
   reseed: () => { if(reseedAirport(fee => confirm(`Rebuild the airport on the standard layout for ${money(fee)}?
 
@@ -1620,7 +1756,7 @@ Every stand, taxiway and runway you have built is removed. The old tiles are not
     const g = ipoGain();
     if(!(G.level>=10 && g>=1)) return;
     if(!confirm(`Go public for ${g} new shares? You will restart with a new fleet.`)) return;
-    const b = G.brand, prev = {allTime:G.allTime, shares:G.shares+g, ipos:G.ipos+1};
+    const b = G.brand, prev = {allTime:G.allTime, shares:G.shares+g, ipos:G.ipos+1, tok:G.tok, ach:G.ach, land:G.land};
     newGame(b, prev); tab='overview'; applyBrand(); build(); toast(`📈 IPO complete! You now hold ${G.shares} shares.`);
   },
 };
