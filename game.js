@@ -811,15 +811,22 @@ function seedHall(){
   G.fac[tkey(4, 3)] = {k:'checkin', q:[]};
   G.fac[tkey(4, 6)] = {k:'security', q:[]};
 }
-function ensureHall(){ if(!G.fac) seedHall(); for(const j in G.fac) if(!G.fac[j].q) G.fac[j].q = []; }
+function ensureHall(){
+  if(!G.fac) seedHall();
+  for(const j in G.fac){
+    const f = G.fac[j];
+    if(!f.q) f.q = [];
+    else if(f.q.length && f.q.some(p => !p || p.s !== SESS)) f.q = f.q.filter(p => p && p.s === SESS);
+  }
+}
 
 /* --- passengers --- */
-const PAX_MAX = 70;
+const PAX_MAX = 70, SESS = Math.random();
 const paxFee = f => Math.round(FAC[f].fee * (1 + G.level*0.16) * revMult());
 function spawnPax(n){
   for(let i = 0; i < n && pax.length < PAX_MAX; i++){
     const [ex, ey] = ENTRY();
-    pax.push({x:ex, y:ey + (Math.random()-0.5)*1.2, step:'checkin', at:null, slot:0, t:0,
+    pax.push({s:SESS, x:ex, y:ey + (Math.random()-0.5)*1.2, step:'checkin', at:null, slot:0, t:0,
       mood:62 + Math.random()*22, c1:PCOL[(Math.random()*PCOL.length)|0],
       sk:SKIN[(Math.random()*SKIN.length)|0], hr:HAIR[(Math.random()*HAIR.length)|0],
       em:null, et:0, spent:0, visits:0, flip:true, bag:Math.random() < .55, bob:Math.random()*6});
