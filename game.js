@@ -825,8 +825,9 @@ const longestRunway = () => runways().reduce((m, R) => !m || R.len > m.len ? R :
 const runwayLen = () => { const r = longestRunway(); return r ? r.len*M_TILE : 0; };
 /* Ground moves run on their own clock so a short hop does not taxi at a sprint:
    the taxi takes as long as the route is, and the roll is the same every time. */
-const TAXI_TPS = 1.6, ROLL = 1.8;                             // taxiway tiles per second, seconds of roll
-const gndTime = r => ((r && r.len) || 6)/TAXI_TPS + ROLL;     // seconds on the ground at each end
+const TAXI_TPS = 1.6, ROLL = 1.8, MAX_TAXI = 10;              // tiles per second, seconds of roll, taxi ceiling
+// A sprawling airport can leave a stand 48 tiles from its runway; past MAX_TAXI the crew simply hurry.
+const gndTime = r => Math.min(((r && r.len) || 6)/TAXI_TPS, MAX_TAXI) + ROLL;   // seconds on the ground, each end
 const flightTime = (air, gnd) => Math.max(air, 2*gnd + 2.5);  // a short hop still has to taxi both ends
 const gndF = a => Math.min(0.48, (a.gnd || 5) / Math.max(a.dur, 0.1));   // ...as a share of the flight
 const taxiF = a => Math.max(0, 1 - ROLL / Math.max(a.gnd || 5, ROLL + 0.1));  // taxi's share of that
