@@ -128,3 +128,8 @@ th{color:var(--muted);font-weight:600;font-size:14px}
 .krows{width:100%;margin-bottom:12px}
 .krows td{border-bottom:1px dashed #3b4575;padding:7px 4px;font-size:15px}
 .krows td:last-child{text-align:right;color:#ffe36b}
+
+/* grouped build toolbar */
+.row.tools{gap:6px;margin-bottom:7px;align-items:center}
+.row.tools:last-child{margin-bottom:0}
+.glab{font-size:13px;font-weight:700;color:var(--muted);min-width:64px}

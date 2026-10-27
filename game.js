@@ -799,8 +799,21 @@ const FAC = {
   dutyfree: {name:'Duty-free',     icon:'\u{1F6CD}', cost:17000, dwell:3.2, fee:22, mood:8,  col:'#e8645f', desc:'The big earner. Happy passengers spend far more here.'},
   seats:    {name:'Seating',       icon:'\u{1FA91}', cost:4000,  dwell:3.6, fee:0,  mood:14, col:'#7ccf7a', desc:'Somewhere to rest. Cheap, and keeps moods high.'},
   toilet:   {name:'Restroom',      icon:'\u{1F6BB}', cost:6000,  dwell:2.0, fee:0,  mood:9,  col:'#6fc6d0', desc:'Basic comfort. Moods sag without one.'},
+  vending:  {name:'Vending Machine', icon:'\u{1F964}', cost:3000,  dwell:1.1, fee:5,  mood:3,  col:'#c05fa8', desc:'Cheap and very fast. Serves a crowd a restaurant never could.'},
+  news:     {name:'Newsstand',       icon:'\u{1F4F0}', cost:7000,  dwell:1.8, fee:9,  mood:5,  col:'#9a8f7a', desc:'Quick impulse buys on the way to the gate.'},
+  exchange: {name:'Currency Exchange', icon:'\u{1F4B1}', cost:13000, dwell:2.4, fee:17, mood:0, col:'#4fae87', desc:'Steady commission, but nobody enjoys the queue.'},
+  restaurant:{name:'Restaurant',     icon:'\u{1F37D}', cost:26000, dwell:4.2, fee:38, mood:16, col:'#d4603f', desc:'Big spend and a big mood lift, but it ties a passenger up for ages.'},
+  lounge:   {name:'Premium Lounge',  icon:'\u{1F6CB}', cost:40000, dwell:5.0, fee:55, mood:22, col:'#b98cd8', desc:'The richest stop in the terminal. Slow, pricey, and passengers love it.'},
+  play:     {name:"Kids' Play Area", icon:'\u{1F9F8}', cost:9000,  dwell:4.0, fee:0,  mood:18, col:'#f2a93b', desc:'No income, but families leave in a far better mood.'},
+  garden:   {name:'Indoor Garden',   icon:'\u{1FAB4}', cost:8000,  passive:true, aura:3.2, rate:2.4, col:'#4f9a52', desc:'No queue. Slowly lifts the mood of every passenger standing near it.'},
+  info:     {name:'Information Desk', icon:'\u2139',   cost:10000, passive:true, aura:3.6, col:'#5fa8d8', desc:'No queue. Passengers queueing nearby lose patience far more slowly.'},
 };
-const AMEN = ['cafe','dutyfree','seats','toilet'];
+const AMEN = ['cafe','dutyfree','seats','toilet','vending','news','exchange','restaurant','lounge','play'];
+// True when a passenger stands within reach of a passive facility of this kind.
+function nearPassive(p, kind){
+  for(const e of facList(kind)) if(Math.hypot(e.gx+.5-p.x, e.gy+.5-p.y) <= FAC[kind].aura) return true;
+  return false;
+}
 const facAt = (gx, gy) => G.fac[tkey(gx, gy)];
 const facList = k => Object.keys(G.fac).filter(j => G.fac[j].k === k).map(j => ({key:+j, f:G.fac[j], gx:(+j/100|0), gy:(+j)%100}));
 const facCount = k => facList(k).length;
@@ -855,6 +868,7 @@ function paxStep(dt){
     const p = pax[i];
     if(p.et > 0) p.et -= dt;
     p.bob += dt*9;
+    if(facCount('garden') && nearPassive(p, 'garden')) p.mood = Math.min(100, p.mood + dt*FAC.garden.rate);
     if(p.step === 'gone'){ pax.splice(i, 1); continue; }
     if(p.step === 'leave' || p.step === 'board'){                       // walk out of the hall
       const ty = p.step === 'board' ? HALL1 + 1.7 : HALL0 - 1.4;
@@ -867,7 +881,7 @@ function paxStep(dt){
       let kind = p.step === 'checkin' || p.step === 'security' ? p.step : null;
       if(p.step === 'amenity'){
         const open = AMEN.filter(k => facCount(k));
-        if(!open.length || p.visits >= 2){ p.step = 'board'; continue; }
+        if(!open.length || p.visits >= (p.mood > 70 ? 3 : 2)){ p.step = 'board'; continue; }
         kind = open[(Math.random()*open.length)|0];
       }
       const e = kind ? pickFac(p, kind) : null;
@@ -885,7 +899,12 @@ function paxStep(dt){
     const tx = p.at.gx + .5 + qn*0.42 - row, ty = p.at.gy + .5 + (p.slot ? 0.58 + row : 0.66);
     const dx = tx - p.x, dy = ty - p.y, d = Math.hypot(dx, dy);
     if(d > 0.06){ const v = Math.min(dt*1.3, d); p.x += dx/d*v; p.y += dy/d*v; p.flip = dx < 0; continue; }
-    if(p.slot > 0){ p.mood = Math.max(0, p.mood - dt*1.7); if(p.mood < 30 && !p.em) emote(p, 'wait'); continue; }
+    if(p.slot > 0){
+      const drain = facCount('info') && nearPassive(p, 'info') ? 0.6 : 1.7;
+      p.mood = Math.max(0, p.mood - dt*drain);
+      if(p.mood < 30 && !p.em) emote(p, 'wait');
+      continue;
+    }
     p.t += dt;
     const D = FAC[f.k];
     if(p.t < D.dwell) continue;
@@ -1027,7 +1046,12 @@ function drawPerson(x, gx, gy, p, night){
 
 function drawFacility(x, gx, gy, f, night){
   const D = FAC[f.k], s = TW()/44, h = 11*s;
-  if(f.k === 'seats'){
+  if(D.passive){
+    const [PX, PY] = iso(gx+.5, gy+.5);
+    x.fillStyle = 'rgba(255,255,255,.10)';
+    x.beginPath(); x.ellipse(PX, PY, D.aura*TW()/2, D.aura*TH()/2, 0, 0, 7); x.fill();
+    box(x, gx+.28, gy+.28, .44, .44, 7*s, shade(D.col,1.2), D.col, shade(D.col,.7));
+  } else if(f.k === 'seats'){
     for(let r = 0; r < 2; r++){
       box(x, gx+.12, gy+.12+r*.45, .76, .3, 5*s, shade(D.col,1.2), D.col, shade(D.col,.7));
     }
@@ -1236,9 +1260,24 @@ function drawScene(dt){
 }
 
 /* --- interaction --- */
-const MODES = [['sel','\u{1F5B1} Select'],['checkin','\u{1F6C4} Check-in'],['security','\u{1F6C2} Security'],
-  ['cafe','☕ Cafe'],['dutyfree','\u{1F6CD} Duty-free'],['seats','\u{1FA91} Seating'],['toilet','\u{1F6BB} Restroom'],
-  ['stand','\u{1F17F} Stand'],['taxi','\u{1F6E3} Taxiway'],['run','\u{1F6EB} Runway'],['del','⛏ Demolish']];
+const MODE_GROUPS = [
+  ['', [['sel','\u{1F5B1} Select'], ['del','\u26CF Demolish']]],
+  ['Terminal', [['checkin'],['security'],['vending'],['news'],['cafe'],['restaurant'],['dutyfree'],
+                ['exchange'],['lounge'],['seats'],['play'],['toilet'],['garden'],['info']]],
+  ['Airside', [['stand','\u{1F17F} Stand'], ['taxi','\u{1F6E3} Taxiway'], ['run','\u{1F6EB} Runway']]],
+];
+const modeLabel = m => { const e = MODE_GROUPS.flatMap(g => g[1]).find(z => z[0] === m); return e && e[1] ? e[1] : FAC[m].icon + ' ' + FAC[m].name; };
+const MODES = MODE_GROUPS.flatMap(g => g[1]).map(z => [z[0], modeLabel(z[0])]);
+function toolbarHTML(){
+  return MODE_GROUPS.map(g => {
+    const lab = g[0] ? '<span class="glab">' + g[0] + '</span>' : '';
+    const btns = g[1].map(z => '<button class="btn sm ' + (z[0] === mode ? 'pri' : '') +
+      '" data-act="mode" data-arg="' + z[0] + '">' + modeLabel(z[0]) + '</button>').join('');
+    const view = g[0] ? '' : '<button class="btn sm" data-act="zoom">' + (zoom ? '\u{1F50D} Zoom in' : '\u{1F50D} Zoom out') +
+      '</button><button class="btn sm" data-act="centre">\u2316 Centre</button>';
+    return '<div class="row tools">' + lab + btns + view + '</div>';
+  }).join('');
+}
 const pick = (px, py) => { const u = (px-cam.x)/(TW()/2), v = (py-cam.y)/(TH()/2); return [Math.floor((u+v)/2), Math.floor((v-u)/2)]; };
 const evPos = (e, c) => { const r = c.getBoundingClientRect(); return [(e.clientX-r.left)/r.width*CW, (e.clientY-r.top)/r.height*CH]; };
 
@@ -1323,7 +1362,7 @@ function hallStatus(){
   if(!ci) warn.push('no check-in desk');
   if(!se) warn.push('no security lane');
   const am = AMEN.filter(k => facCount(k)).length;
-  return `<p>Terminal: <b>${ci}</b> check-in · <b>${se}</b> security · <b>${am}</b>/4 amenity kinds<br>
+  return `<p>Terminal: <b>${ci}</b> check-in · <b>${se}</b> security · <b>${am}</b>/${AMEN.length} amenity kinds<br>
     <span class="muted">In the hall now: <b>${pax.length}</b> passengers, mood <b>${Math.round(paxHappy())}%</b>${G.paxRev ? ` · earned <b class="good">${money(G.paxRev)}</b>` : ''}</span></p>
     ${warn.length ? `<p class="bad">⚠ ${warn.join(' and ')} — passengers give up and walk out.</p>` : ''}`;
 }
@@ -1344,7 +1383,7 @@ function panelHTML(){
   if(s && s.fac != null && G.fac[s.fac]){
     const f = G.fac[s.fac], D = FAC[f.k];
     return `<div class="card"><h3>${D.icon} ${D.name}</h3><p class="muted">${D.desc}</p>
-      <p>Queue now: <b>${f.q.length}</b> · service time ${D.dwell}s${D.fee ? ` · about <b>${money(paxFee(f.k))}</b> per customer` : ''}</p></div>`;
+      <p>${D.passive ? `Works by proximity · reaches <b>${D.aura}</b> tiles` : `Queue now: <b>${f.q.length}</b> · service time ${D.dwell}s` + (D.fee ? ` · about <b>${money(paxFee(f.k))}</b> per customer` : '')}</p></div>`;
   }
   if(s && s.ac){
     const a = G.fleet.find(z => z.id == s.ac);
@@ -1385,9 +1424,7 @@ function renderPanel(){ const p = $('#apanel'); if(p){ p.innerHTML = panelHTML()
 function bAirport(){
   ensureAirport();
   return `<div class="card pix"><canvas id="scene" width="${CW}" height="${CH}"></canvas></div>
-  <div class="card"><div class="row">${MODES.map(([m,l]) => `<button class="btn sm ${m===mode?'pri':''}" data-act="mode" data-arg="${m}">${l}</button>`).join('')}
-    <button class="btn sm" data-act="zoom">${zoom ? '\u{1F50D} Zoom in' : '\u{1F50D} Zoom out'}</button>
-    <button class="btn sm" data-act="centre">⌖ Centre</button></div></div>
+  <div class="card">${toolbarHTML()}</div>
   <div id="apanel">${panelHTML()}</div>`;
 }
 
