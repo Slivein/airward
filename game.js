@@ -1772,9 +1772,9 @@ function panelHTML(){
     <p class="muted small" style="margin-top:10px">Rebuild clears every stand, taxiway and runway and lays the standard layout for your fleet. You pay full price for the new tiles and the old ones are not refunded; your terminal interior is untouched.</p>
     <div class="row"><button class="btn danger" data-act="reseed">\u{1F3D7}️ Rebuild airside layout</button></div></div>`;
 }
-// A landside plot sits at the top of the map, far above the panel below the scene, so its card
-// floats over the scene instead — on the side away from the plot you tapped.
-const floatPanel = s => !!s && (s.plot != null || s.bld != null);
+// Anything you tap on the map gets its card floating over the scene, on the side away from what
+// you tapped, rather than below the fold. The card under the scene keeps the airport summary.
+const floatPanel = s => !!s;
 const overHTML = () => floatPanel(sel)
   ? `<div class="aover ${panelSide}">${panelHTML()}<button class="btn sm aoverx" data-act="unsel" title="Close">✕</button></div>` : '';
 function belowHTML(){                                           // the card below keeps showing the airport summary
@@ -1932,7 +1932,7 @@ const ACT = {
   check: a => { const ac = G.fleet.find(z=>z.id==a); if(ac && ['ready','grounded','nofuel','noroute'].includes(ac.state)) startCheck(ac); },
   dispatchAll: () => G.fleet.forEach(ac => { if(ac.state==='ready') tryDepart(ac); }),
   checkAll: () => G.fleet.forEach(ac => { if(['ready','grounded'].includes(ac.state) && ac.cond<95) startCheck(ac); }),
-  sell: a => { const i = G.fleet.findIndex(z=>z.id==a); if(i<0 || G.fleet[i].state==='flying') return; G.cash += sellValue(G.fleet[i]); G.fleet.splice(i,1); build(); },
+  sell: a => { const i = G.fleet.findIndex(z=>z.id==a); if(i<0 || G.fleet[i].state==='flying') return; G.cash += sellValue(G.fleet[i]); G.fleet.splice(i,1); sel = null; build(); },
   mode: a => { mode = a; sel = null; build(); },
   unsel: () => { sel = null; renderPanel(); },
   land: a => { if(buyLand(+a)){ sel = null; build(); } },
