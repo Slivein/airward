@@ -116,6 +116,31 @@ th{color:var(--muted);font-weight:600;font-size:14px}
   .ac,.cat{grid-template-columns:1fr}
   #map{height:260px}
   .cat .btn{width:100%}
+
+  /* Desktop chrome ate the top ~550px of a phone screen before any of the game showed. */
+  #app{padding:0 10px 32px}
+  header{padding:10px 0 6px}
+  .brandbox{gap:10px;margin-bottom:8px}
+  .brandbox b{font-size:18px}
+  .brandbox small{font-size:12px}
+  #logo svg{width:38px;height:38px}
+  .stats{grid-template-columns:repeat(3,1fr);gap:6px}
+  .stat{padding:6px 8px;border-radius:9px}
+  .stat label{font-size:11px}
+  .stat b{font-size:15px;line-height:1.2}
+  .stat small{font-size:10px}
+  .stat .bar{height:5px;border-radius:4px}
+
+  /* The nav wraps to several rows here, so sticking it would hide the top of the scene. */
+  nav{position:static;padding:2px 0 6px;margin-bottom:8px;gap:5px}
+  nav button{padding:8px 10px;font-size:13px;border-radius:9px}
+  nav button.spd{padding:8px 9px;min-width:38px;font-size:13px}
+  .navgap{display:none}
+
+  .card{padding:12px;margin-bottom:10px}
+  .card h3{font-size:17px;margin-bottom:8px}
+  .row.tools{gap:5px}
+  .glab{min-width:0;font-size:12px}
 }
 
 /* pixel airport scene */
