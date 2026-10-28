@@ -822,6 +822,7 @@ const plotAt = (gx, gy) => gx - 1;
 const inHall = (gx, gy) => gy >= HALL0 && gy <= HALL1 && open(gx, gy);
 const inAir = (gx, gy) => gy >= AIR && gy < GH && open(gx, gy);
 let sel = null, mode = 'sel';
+let ptrs = new Map(), pinch = null, wheelAcc = 0;             // live pointers, for pinch-to-zoom
 let floats = [], pax = [], drag = null, paint = null;
 function showResult(title, rows, flavour){
   const m = $('#modal'); if(!m) return;
@@ -1571,7 +1572,7 @@ function applyBuild(gx, gy){
 }
 function sceneClick(e){
   const c = e.target, [px, py] = evPos(e, c);
-  if(!isFinite(px) || !isFinite(py)) return;
+  if(!isFinite(px) || !isFinite(py) || pinch) return;
   if(py < HUD || mode !== 'sel') return;                      // build tools act on press, not click
   if(drag && drag.moved) return;
   const [gx, gy] = pick(px, py);
@@ -1611,9 +1612,33 @@ function paintAt(gx, gy){
   }
   invalidate();
 }
+/* Zoom steps between the three fixed levels — the art is pixel art, so the tile size stays whole.
+   The world point under the fingers (or the cursor) stays put. */
+const ZOOM_STEP = 1.3;                                        // how far a pinch must spread to change level
+function zoomAt(step, px, py){
+  const z = clamp(zoom + step, 0, ZOOM.length-1);
+  if(z === zoom) return false;
+  const u = (px - cam.x)/(TW()/2), v = (py - cam.y)/(TH()/2);  // world point under the pinch
+  zoom = z;
+  cam.x = px - u*TW()/2; cam.y = py - v*TH()/2; cam.set = true;
+  const b = $('[data-act="zoom"]');                            // relabel in place: rebuilding would
+  if(b) b.textContent = '\u{1F50D} ' + ['Close', 'Wide', 'Whole map'][zoom];   // swap the canvas mid-gesture
+  return true;
+}
+const ptrDist = () => { const p = [...ptrs.values()]; return Math.hypot(p[0][0]-p[1][0], p[0][1]-p[1][1]); };
+const ptrMid = () => { const p = [...ptrs.values()]; return [(p[0][0]+p[1][0])/2, (p[0][1]+p[1][1])/2]; };
+
 function sceneDown(e){
   const el = e.target, [px, py] = evPos(e, el);
   if(!isFinite(px) || !isFinite(py)) return;
+  ptrs.set(e.pointerId, [px, py]);
+  if(ptrs.size === 2){                                        // second finger down: pinch, not drag
+    drag = null;
+    if(paint){ paint = null; renderPanel(); }
+    pinch = {el, d:ptrDist()};
+    return;
+  }
+  if(ptrs.size > 2 || pinch) return;
   if(mode !== 'sel'){
     if(py < HUD) return;
     const [gx, gy] = pick(px, py);
@@ -1623,6 +1648,20 @@ function sceneDown(e){
   drag = {px, py, cx:cam.x, cy:cam.y, moved:false, el};
 }
 function sceneMove(e){
+  if(pinch){
+    if(!ptrs.has(e.pointerId)) return;
+    const [px, py] = evPos(e, pinch.el);
+    if(!isFinite(px) || !isFinite(py)) return;
+    ptrs.set(e.pointerId, [px, py]);
+    if(ptrs.size < 2) return;
+    const d = ptrDist(), k = d/pinch.d;
+    if(k > ZOOM_STEP || k < 1/ZOOM_STEP){
+      const [mx, my] = ptrMid();
+      zoomAt(k > 1 ? -1 : 1, mx, my);                         // level 0 is closest, so spreading lowers it
+      pinch.d = d;
+    }
+    return;
+  }
   const d = paint || drag;
   if(!d) return;
   const [px, py] = evPos(e, d.el);                            // the canvas, even if the cursor left it
@@ -1631,7 +1670,12 @@ function sceneMove(e){
   if(Math.abs(px-drag.px) + Math.abs(py-drag.py) > 5) drag.moved = true;
   if(drag.moved){ cam.x = drag.cx + (px-drag.px); cam.y = drag.cy + (py-drag.py); }
 }
-function sceneUp(){ if(paint){ paint = null; renderPanel(); } setTimeout(() => { drag = null; }, 0); }
+function sceneUp(e){
+  if(e && e.pointerId != null) ptrs.delete(e.pointerId); else ptrs.clear();
+  if(pinch && ptrs.size < 2) setTimeout(() => { pinch = null; }, 0);   // and swallow the click it ends with
+  if(paint){ paint = null; renderPanel(); }
+  setTimeout(() => { drag = null; }, 0);
+}
 
 /* --- panels --- */
 function fitsRunway(m = runwayLen()){ return TYPES.filter((t, i) => RWY[i] <= m).pop(); }
@@ -1909,10 +1953,21 @@ const lbl = (el, t) => { const l = $('#lbl-'+el.dataset.in); if(l) l.textContent
 
 // Pointer events, so a finger drags the same way a mouse does. #scene sets touch-action:none
 // or the browser would pan the page instead of giving us the move events.
-document.addEventListener('pointerdown', e => { if(e.target.id === 'scene' && G && !drag && !paint) sceneDown(e); });
-document.addEventListener('pointermove', e => { if((drag || paint) && G) sceneMove(e); });
-document.addEventListener('pointerup', () => { if(drag || paint) sceneUp(); });
-document.addEventListener('pointercancel', () => { if(drag || paint) sceneUp(); });
+document.addEventListener('pointerdown', e => { if(e.target.id === 'scene' && G) sceneDown(e); });
+document.addEventListener('pointermove', e => { if((drag || paint || pinch) && G) sceneMove(e); });
+document.addEventListener('pointerup', e => { if((drag || paint || ptrs.size) && G) sceneUp(e); });
+document.addEventListener('pointercancel', e => { if((drag || paint || ptrs.size) && G) sceneUp(e); });
+// A trackpad pinch arrives as ctrl+wheel, never as two pointers.
+document.addEventListener('wheel', e => {
+  if(!G || e.target.id !== 'scene' || !e.ctrlKey) return;
+  e.preventDefault();
+  const [px, py] = evPos(e, e.target);
+  if(!isFinite(px) || !isFinite(py)) return;
+  wheelAcc += e.deltaY;
+  if(Math.abs(wheelAcc) < 20) return;
+  zoomAt(wheelAcc > 0 ? 1 : -1, px, py);
+  wheelAcc = 0;
+}, {passive:false});
 document.addEventListener('click', e => {
   if(e.target.id === 'scene' && G) return sceneClick(e);
   const t = e.target.closest('[data-act]'); if(!t || !G || t.disabled) return;
