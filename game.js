@@ -1507,17 +1507,27 @@ const MODE_GROUPS = [
 ];
 const modeLabel = m => { const e = MODE_GROUPS.flatMap(g => g[1]).find(z => z[0] === m); return e && e[1] ? e[1] : FAC[m].icon + ' ' + FAC[m].name; };
 const MODES = MODE_GROUPS.flatMap(g => g[1]).map(z => [z[0], modeLabel(z[0])]);
+// On a narrow screen the fourteen terminal tools run to eight rows, so each named group folds
+// behind a header. The header is hidden on desktop, where the groups always show.
+let toolGroup = '';
 function toolbarHTML(){
   return MODE_GROUPS.map(g => {
-    const lab = g[0] ? '<span class="glab">' + g[0] + '</span>' : '';
+    const name = g[0];
     const btns = g[1].map(z => '<button class="btn sm ' + (z[0] === mode ? 'pri' : '') +
       '" data-act="mode" data-arg="' + z[0] + '">' + modeLabel(z[0]) + '</button>').join('');
-    const view = g[0] ? '' : '<button class="btn sm" data-act="zoom">\u{1F50D} ' + ['Close', 'Wide', 'Whole map'][zoom] +
-      '</button><button class="btn sm" data-act="centre">\u2316 Centre</button>';
-    return '<div class="row tools">' + lab + btns + view + '</div>';
+    if(!name){
+      const view = '<button class="btn sm" data-act="zoom">\u{1F50D} ' + ['Close', 'Wide', 'Whole map'][zoom] +
+        '</button><button class="btn sm" data-act="centre">\u2316 Centre</button>';
+      return '<div class="row tools">' + btns + view + '</div>';
+    }
+    const open = toolGroup === name, cur = g[1].find(z => z[0] === mode);
+    return '<div class="tgroup' + (open ? ' open' : '') + '">' +
+      '<button class="btn sm tgh" data-act="group" data-arg="' + name + '">' +
+      (open ? '\u25BE ' : '\u25B8 ') + name +
+      (cur && !open ? '<span class="tgcur">' + modeLabel(cur[0]) + '</span>' : '') + '</button>' +
+      '<div class="row tools tgbody"><span class="glab">' + name + '</span>' + btns + '</div></div>';
   }).join('');
-}
-const pick = (px, py) => { const u = (px-cam.x)/(TW()/2), v = (py-cam.y)/(TH()/2); return [Math.floor((u+v)/2), Math.floor((v-u)/2)]; };
+}const pick = (px, py) => { const u = (px-cam.x)/(TW()/2), v = (py-cam.y)/(TH()/2); return [Math.floor((u+v)/2), Math.floor((v-u)/2)]; };
 const evPos = (e, c) => {                                     // NaN while the canvas has no size, e.g. a hidden tab
   const r = c.getBoundingClientRect();
   return r.width && r.height ? [(e.clientX-r.left)/r.width*CW, (e.clientY-r.top)/r.height*CH] : [NaN, NaN];
@@ -1934,6 +1944,7 @@ const ACT = {
   checkAll: () => G.fleet.forEach(ac => { if(['ready','grounded'].includes(ac.state) && ac.cond<95) startCheck(ac); }),
   sell: a => { const i = G.fleet.findIndex(z=>z.id==a); if(i<0 || G.fleet[i].state==='flying') return; G.cash += sellValue(G.fleet[i]); G.fleet.splice(i,1); sel = null; build(); },
   mode: a => { mode = a; sel = null; build(); },
+  group: a => { toolGroup = toolGroup === a ? "" : a; build(); },
   unsel: () => { sel = null; renderPanel(); },
   land: a => { if(buyLand(+a)){ sel = null; build(); } },
   licence: () => { if(buyLicence()) build(); },

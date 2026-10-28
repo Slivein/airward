@@ -140,7 +140,10 @@ th{color:var(--muted);font-weight:600;font-size:14px}
   .card{padding:12px;margin-bottom:10px}
   .card h3{font-size:17px;margin-bottom:8px}
   .row.tools{gap:5px}
-  .glab{min-width:0;font-size:12px}
+  .glab{display:none}
+  .tgroup>.tgh{display:flex;width:100%;justify-content:flex-start;align-items:center;gap:8px;margin-bottom:6px;font-size:14px}
+  .tgcur{color:var(--brand);font-weight:600}
+  .tgroup:not(.open) .tgbody{display:none}
 }
 
 /* pixel airport scene */
@@ -158,6 +161,7 @@ th{color:var(--muted);font-weight:600;font-size:14px}
 .row.tools{gap:6px;margin-bottom:7px;align-items:center}
 .row.tools:last-child{margin-bottom:0}
 .glab{font-size:13px;font-weight:700;color:var(--muted);min-width:64px}
+.tgh{display:none}
 .navgap{flex:1 1 auto;min-width:8px}
 nav button.spd{padding:10px 13px;min-width:46px;font-size:15px}
 .pix{position:relative}
