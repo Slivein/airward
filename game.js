@@ -228,7 +228,7 @@ function newGame(brand, prev){
     tok: prev ? prev.tok||0 : 0, ach: prev ? prev.ach||{} : {}, lic: prev ? prev.lic||0 : 0,
     land: prev && prev.land ? prev.land : Object.fromEntries(START_LAND.map(b => [b, 1])),
     ticket:1, upg:{}, routes:{}, fleet:[], nextId:101, time:0, evt:{}, nextEvt:90, taxT:20,
-    mAcc:0, xAcc:0, charterCD:0, flights:0, rate:0, lfEma:0.6, acc:0, log:[], lastSave:Date.now(),
+    mAcc:0, xAcc:0, charterCD:0, flights:0, rate:0, lfEma:0.6, lfTerm:1, acc:0, log:[], lastSave:Date.now(),
     auto:{dispatch:{on:true}, fuel:{on:true, below:1.0}, check:{on:true, below:55},
           offset:{on:true, above:10}, expand:{on:true, reserve:0.5}},
   };
@@ -268,9 +268,16 @@ const checkCost = a => TYPES[a.type].cost * 0.001 * (100 - a.cond) + 50;
 const sellValue = a => Math.round(TYPES[a.type].cost * 0.5 * (0.5 + 0.5*a.cond/100));
 const acOnRoute = code => G.fleet.filter(a => a.route === code).length;
 
+/* Terminal service: the share of passengers your hall actually gets onto an aircraft.
+   Anyone who runs out of patience in a queue, or finds no desk to use at all, walks out —
+   and planes leave with the seats those people would have filled. */
+const TERM_W = 0.97;                                          // remembers roughly the last 30 passengers
+const termHit = () => { G.lfTerm = G.lfTerm*TERM_W + (1-TERM_W); };
+const termMiss = () => { G.lfTerm = G.lfTerm*TERM_W; };
+const termFactor = () => 0.55 + 0.45*clamp(G.lfTerm, 0, 1);
 function loadFactor(code, n){
   const lf = (0.3 + 0.65*routeDemand(code)) * (0.75 + rating()/200) / Math.pow(G.ticket, 1.3)
-           / (1 + 0.12*(Math.max(1,n)-1)) * demandEvt();
+           / (1 + 0.12*(Math.max(1,n)-1)) * demandEvt() * termFactor();
   return clamp(lf, 0.08, 0.98);
 }
 function estimate(t, code, n){
@@ -540,6 +547,7 @@ function load(){
     const s = localStorage.getItem(SAVE_KEY); if(!s) return false;
     G = JSON.parse(s); if(!G || G.v !== 1) return false;
     G.tok = G.tok || 0; G.ach = G.ach || {};
+    if(typeof G.lfTerm !== 'number') G.lfTerm = 1;
     if(!G.land || !Object.keys(G.land).length){ G.land = {}; for(const b of START_LAND) G.land[b] = 1; }
     return true;
   }catch(e){ return false; }
@@ -562,6 +570,7 @@ function bindVal(key){
     case 'xp': return `${fmt(G.xp)}/${fmt(xpNeed(G.level))} XP`;
     case 'flights': return fmt(G.flights);
     case 'lf': return Math.round(G.lfEma*100)+'%';
+    case 'term': return `${Math.round(G.lfTerm*100)}% boarded · ×${termFactor().toFixed(2)} seats`;
     case 'rating': return Math.round(rating())+'/100';
     case 'fleetcount': return `${G.fleet.length}/${gates()}`;
     case 'ticketlbl': return `${Math.round(G.ticket*100)}% of base fare`;
@@ -596,6 +605,7 @@ function widthVal(key){
     case 'xppct': return G.xp/xpNeed(G.level)*100;
     case 'ecopct': return ecoScore();
     case 'ratingpct': return rating();
+    case 'termpct': return clamp(G.lfTerm*100, 0, 100);
     case 'acp': { const a=G.fleet.find(z=>z.id==id); return a && a.dur ? (a.state==='flying'||a.state==='turn'||a.state==='check' ? a.t/a.dur*100 : 0) : 0; }
     case 'acc': { const a=G.fleet.find(z=>z.id==id); return a ? a.cond : 0; }
   }
@@ -663,6 +673,7 @@ function bOverview(){
     <div class="card kpi"><label>Net income</label><b data-bind="hr"></b></div>
     <div class="card kpi"><label>Flights flown</label><b data-bind="flights"></b></div>
     <div class="card kpi"><label>Avg load factor</label><b data-bind="lf"></b></div>
+    <div class="card kpi"><label>Terminal service</label><b data-bind="term"></b><div class="bar"><i class="good" data-w="termpct"></i></div></div>
     <div class="card kpi"><label>Brand rating</label><b data-bind="rating"></b><div class="bar"><i class="good" data-w="ratingpct"></i></div></div>
   </div>
   <div class="card"><canvas id="map"></canvas></div>
@@ -944,7 +955,7 @@ const FAC = {
   restaurant:{name:'Restaurant',     icon:'\u{1F37D}', cost:26000, dwell:4.2, fee:38, mood:16, col:'#d4603f', desc:'Big spend and a big mood lift, but it ties a passenger up for ages.'},
   lounge:   {name:'Premium Lounge',  icon:'\u{1F6CB}', cost:40000, dwell:5.0, fee:55, mood:22, col:'#b98cd8', desc:'The richest stop in the terminal. Slow, pricey, and passengers love it.'},
   play:     {name:"Kids' Play Area", icon:'\u{1F9F8}', cost:9000,  dwell:4.0, fee:0,  mood:18, col:'#f2a93b', desc:'No income, but families leave in a far better mood.'},
-  garden:   {name:'Indoor Garden',   icon:'\u{1FAB4}', cost:8000,  passive:true, aura:3.2, rate:2.4, col:'#4f9a52', desc:'No queue. Slowly lifts the mood of every passenger standing near it.'},
+  garden:   {name:'Indoor Garden',   icon:'\u{1FAB4}', cost:8000,  passive:true, aura:3.2, rate:1.0, col:'#4f9a52', desc:'No queue. Slowly lifts the mood of every passenger standing near it.'},
   info:     {name:'Information Desk', icon:'\u2139',   cost:10000, passive:true, aura:3.6, col:'#5fa8d8', desc:'No queue. Passengers queueing nearby lose patience far more slowly.'},
 };
 const AMEN = ['cafe','dutyfree','seats','toilet','vending','news','exchange','restaurant','lounge','play'];
@@ -1025,13 +1036,13 @@ function paxStep(dt){
       let kind = p.step === 'checkin' || p.step === 'security' ? p.step : null;
       if(p.step === 'amenity'){
         const open = AMEN.filter(k => facCount(k));
-        if(!open.length || p.visits >= (p.mood > 70 ? 3 : 2)){ p.step = 'board'; continue; }
+        if(!open.length || p.visits >= (p.mood > 70 ? 3 : 2)){ p.step = 'board'; termHit(); continue; }
         kind = open[(Math.random()*open.length)|0];
       }
       const e = kind ? pickFac(p, kind) : null;
       if(!e){
         p.t += dt;                                                      // nothing to use: give up and leave
-        if(p.t > 5){ p.mood = 12; emote(p, 'angry'); p.step = 'leave'; G.paxLost = (G.paxLost||0) + 1; }
+        if(p.t > 5){ p.mood = 12; emote(p, 'angry'); p.step = 'leave'; G.paxLost = (G.paxLost||0) + 1; termMiss(); }
         continue;
       }
       p.at = {key:e.key, gx:e.gx, gy:e.gy}; e.f.q.push(p); p.t = 0;
@@ -1046,6 +1057,11 @@ function paxStep(dt){
     if(p.slot > 0){
       const drain = facCount('info') && nearPassive(p, 'info') ? 0.6 : 1.7;
       p.mood = Math.max(0, p.mood - dt*drain);
+      if(p.mood <= 0){                                                  // out of patience: abandons the queue
+        leaveFac(p); emote(p, 'angry'); p.step = 'leave';
+        G.paxLost = (G.paxLost||0) + 1; termMiss();
+        continue;
+      }
       if(p.mood < 30 && !p.em) emote(p, 'wait');
       continue;
     }
@@ -1500,7 +1516,10 @@ function toolbarHTML(){
   }).join('');
 }
 const pick = (px, py) => { const u = (px-cam.x)/(TW()/2), v = (py-cam.y)/(TH()/2); return [Math.floor((u+v)/2), Math.floor((v-u)/2)]; };
-const evPos = (e, c) => { const r = c.getBoundingClientRect(); return [(e.clientX-r.left)/r.width*CW, (e.clientY-r.top)/r.height*CH]; };
+const evPos = (e, c) => {                                     // NaN while the canvas has no size, e.g. a hidden tab
+  const r = c.getBoundingClientRect();
+  return r.width && r.height ? [(e.clientX-r.left)/r.width*CW, (e.clientY-r.top)/r.height*CH] : [NaN, NaN];
+};
 
 function onceToast(m){ if(!paint) return toast(m); if(!paint.said){ paint.said = 1; toast(m); } }
 function applyBuild(gx, gy){
@@ -1552,6 +1571,7 @@ function applyBuild(gx, gy){
 }
 function sceneClick(e){
   const c = e.target, [px, py] = evPos(e, c);
+  if(!isFinite(px) || !isFinite(py)) return;
   if(py < HUD || mode !== 'sel') return;                      // build tools act on press, not click
   if(drag && drag.moved) return;
   const [gx, gy] = pick(px, py);
@@ -1593,6 +1613,7 @@ function paintAt(gx, gy){
 }
 function sceneDown(e){
   const el = e.target, [px, py] = evPos(e, el);
+  if(!isFinite(px) || !isFinite(py)) return;
   if(mode !== 'sel'){
     if(py < HUD) return;
     const [gx, gy] = pick(px, py);
@@ -1605,6 +1626,7 @@ function sceneMove(e){
   const d = paint || drag;
   if(!d) return;
   const [px, py] = evPos(e, d.el);                            // the canvas, even if the cursor left it
+  if(!isFinite(px) || !isFinite(py)) return;
   if(paint){ if(py < HUD) return; const [gx, gy] = pick(px, py); return paintAt(gx, gy); }
   if(Math.abs(px-drag.px) + Math.abs(py-drag.py) > 5) drag.moved = true;
   if(drag.moved){ cam.x = drag.cx + (px-drag.px); cam.y = drag.cy + (py-drag.py); }
@@ -1624,8 +1646,11 @@ function hallStatus(){
   if(!ci) warn.push('no check-in desk');
   if(!se) warn.push('no security lane');
   const am = AMEN.filter(k => facCount(k)).length;
+  const sv = Math.round(G.lfTerm*100), lost = G.paxLost || 0;
   return `<p>Terminal: <b>${ci}</b> check-in · <b>${se}</b> security · <b>${am}</b>/${AMEN.length} amenity kinds<br>
-    <span class="muted">In the hall now: <b>${pax.length}</b> passengers, mood <b>${Math.round(paxHappy())}%</b>${G.paxRev ? ` · earned <b class="good">${money(G.paxRev)}</b>` : ''}</span></p>
+    <span class="muted">In the hall now: <b>${pax.length}</b> passengers, mood <b>${Math.round(paxHappy())}%</b>${G.paxRev ? ` · earned <b class="good">${money(G.paxRev)}</b>` : ''}</span><br>
+    <span class="${sv > 85 ? 'good' : sv > 60 ? 'muted' : 'bad'}">Service: <b>${sv}%</b> of passengers board${lost ? ` · <b>${fmt(lost)}</b> walked out` : ''}</span>
+    <span class="muted">— your flights fly at <b>×${termFactor().toFixed(2)}</b> of their load factor.</span></p>
     ${warn.length ? `<p class="bad">⚠ ${warn.join(' and ')} — passengers give up and walk out.</p>` : ''}`;
 }
 function licCard(){
@@ -1882,9 +1907,12 @@ const INP = {
 };
 const lbl = (el, t) => { const l = $('#lbl-'+el.dataset.in); if(l) l.textContent = t; };
 
-document.addEventListener('mousedown', e => { if(e.target.id === 'scene' && G) sceneDown(e); });
-document.addEventListener('mousemove', e => { if((drag || paint) && G) sceneMove(e); });
-document.addEventListener('mouseup', () => { if(drag || paint) sceneUp(); });
+// Pointer events, so a finger drags the same way a mouse does. #scene sets touch-action:none
+// or the browser would pan the page instead of giving us the move events.
+document.addEventListener('pointerdown', e => { if(e.target.id === 'scene' && G && !drag && !paint) sceneDown(e); });
+document.addEventListener('pointermove', e => { if((drag || paint) && G) sceneMove(e); });
+document.addEventListener('pointerup', () => { if(drag || paint) sceneUp(); });
+document.addEventListener('pointercancel', () => { if(drag || paint) sceneUp(); });
 document.addEventListener('click', e => {
   if(e.target.id === 'scene' && G) return sceneClick(e);
   const t = e.target.closest('[data-act]'); if(!t || !G || t.disabled) return;
