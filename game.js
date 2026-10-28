@@ -823,6 +823,7 @@ const inHall = (gx, gy) => gy >= HALL0 && gy <= HALL1 && open(gx, gy);
 const inAir = (gx, gy) => gy >= AIR && gy < GH && open(gx, gy);
 let sel = null, mode = 'sel';
 let ptrs = new Map(), pinch = null, wheelAcc = 0;             // live pointers, for pinch-to-zoom
+let panelSide = 'right';                                      // which half the floating plot card sits in
 let floats = [], pax = [], drag = null, paint = null;
 function showResult(title, rows, flavour){
   const m = $('#modal'); if(!m) return;
@@ -1577,6 +1578,7 @@ function sceneClick(e){
   if(drag && drag.moved) return;
   const [gx, gy] = pick(px, py);
   sel = null;
+  panelSide = px > CW/2 ? 'left' : 'right';                  // keep the thing you tapped in view
   for(const dy of [30, 22, 14, 6, 0]){                       // tall things: also test the tile behind
     const [bx, by] = pick(px, py+dy);
     if(!isPlot(bx, by)) continue;
@@ -1770,12 +1772,29 @@ function panelHTML(){
     <p class="muted small" style="margin-top:10px">Rebuild clears every stand, taxiway and runway and lays the standard layout for your fleet. You pay full price for the new tiles and the old ones are not refunded; your terminal interior is untouched.</p>
     <div class="row"><button class="btn danger" data-act="reseed">\u{1F3D7}️ Rebuild airside layout</button></div></div>`;
 }
-function renderPanel(){ const p = $('#apanel'); if(p){ p.innerHTML = panelHTML(); updateUI(); } }
+// A landside plot sits at the top of the map, far above the panel below the scene, so its card
+// floats over the scene instead — on the side away from the plot you tapped.
+const floatPanel = s => !!s && (s.plot != null || s.bld != null);
+const overHTML = () => floatPanel(sel)
+  ? `<div class="aover ${panelSide}">${panelHTML()}<button class="btn sm aoverx" data-act="unsel" title="Close">✕</button></div>` : '';
+function belowHTML(){                                           // the card below keeps showing the airport summary
+  const s = sel;
+  if(floatPanel(s)) sel = null;
+  const h = panelHTML();
+  sel = s;
+  return h;
+}
+function renderPanel(){
+  const over = $('#aover'), p = $('#apanel');
+  if(over) over.innerHTML = overHTML();
+  if(p) p.innerHTML = belowHTML();
+  updateUI();
+}
 function bAirport(){
   ensureAirport();
-  return `<div class="card pix"><canvas id="scene" width="${CW}" height="${CH}"></canvas></div>
+  return `<div class="card pix"><canvas id="scene" width="${CW}" height="${CH}"></canvas><div id="aover">${overHTML()}</div></div>
   <div class="card">${toolbarHTML()}</div>
-  <div id="apanel">${panelHTML()}</div>`;
+  <div id="apanel">${belowHTML()}</div>`;
 }
 
 function bFuel(){
@@ -1915,6 +1934,7 @@ const ACT = {
   checkAll: () => G.fleet.forEach(ac => { if(['ready','grounded'].includes(ac.state) && ac.cond<95) startCheck(ac); }),
   sell: a => { const i = G.fleet.findIndex(z=>z.id==a); if(i<0 || G.fleet[i].state==='flying') return; G.cash += sellValue(G.fleet[i]); G.fleet.splice(i,1); build(); },
   mode: a => { mode = a; sel = null; build(); },
+  unsel: () => { sel = null; renderPanel(); },
   land: a => { if(buyLand(+a)){ sel = null; build(); } },
   licence: () => { if(buyLicence()) build(); },
   zoom: () => { zoom = (zoom+1) % ZOOM.length; cam.set = false; build(); },
