@@ -757,6 +757,15 @@ const BUILD = Object.keys(UPG).filter(id => id !== 'gates');
 const BCOL = {tank:'#b7bdc8', crew:'#e0a050', term:'#6fa8dc', eng:'#9aa1ad', saf:'#7ccf7a', forest:'#3f9a45', shop:'#e8645f'};
 const RWY = [500, 750, 1000, 1500, 1750, 2250, 2500, 3000];   // runway metres each aircraft type needs
 const ZOOM = [{TW:44, TH:22, WP:11}, {TW:28, TH:14, WP:17}, {TW:16, TH:8, WP:16}];  // close / wide / whole map
+const TZOOM = [{TW:64, TH:32, WP:8}, {TW:40, TH:20, WP:12}, {TW:24, TH:12, WP:16}];  // the same three, indoors
+let view = 'air';                                             // which half of the airport you are looking at
+const camOf = {air:{x:0,y:0,set:false}, term:{x:0,y:0,set:false}}, zoomOf = {air:0, term:0};
+function setView(v){
+  if(v === view) return;
+  camOf[view] = {x:cam.x, y:cam.y, set:cam.set}; zoomOf[view] = zoom;
+  view = v; zoom = zoomOf[v];
+  const k = camOf[v]; cam.x = k.x; cam.y = k.y; cam.set = k.set;
+}
 const CW = 660, CH = 430, HUD = 30;                           // viewport and the chrome bar on top
 const GW = 60, GH = 60, BS = 12, BW = GW/BS, M_TILE = 250, SS = 3, MIN_RUN = 2;
 const HALL0 = 2, HALL1 = 5, AIR = 6;                          // terminal interior rows, then the airside
@@ -764,7 +773,8 @@ const GEO = 4;                                                // layout generati
 const START_LAND = [0];                                       // you start on one 12x12 block and buy outward
 const DIRS = [[1,0],[-1,0],[0,1],[0,-1]];
 let zoom = 0, cam = {x:0, y:0, set:false};
-const TW = () => ZOOM[zoom].TW, TH = () => ZOOM[zoom].TH, WP = () => ZOOM[zoom].WP;
+const Z = () => (view === "term" ? TZOOM : ZOOM)[zoom];
+const TW = () => Z().TW, TH = () => Z().TH, WP = () => Z().WP;
 const iso = (gx, gy, z = 0) => [cam.x + (gx-gy)*TW()/2, cam.y + (gx+gy)*TH()/2 - z];
 const bldH = lvl => (6 + 5*Math.min(4, 1 + Math.floor(lvl/3))) * TW()/26;
 const bIdx = (gx, gy) => ((gy/BS)|0)*BW + ((gx/BS)|0);
@@ -1275,28 +1285,84 @@ function drawPerson(x, gx, gy, p, night){
   }
 }
 
+// Every amenity used to be the same coloured box with an emoji on it. Each kind now has its own
+// silhouette, so a glance at the hall tells you what is where.
+const FSH = {checkin:'desk', exchange:'desk', info:'desk', security:'arch', cafe:'table', restaurant:'table',
+  dutyfree:'shelf', news:'shelf', seats:'bench', toilet:'cab', vending:'vend', lounge:'sofa',
+  play:'toys', garden:'plant'};
 function drawFacility(x, gx, gy, f, night){
-  const D = FAC[f.k], s = TW()/44, h = 11*s;
+  const D = FAC[f.k], s = TW()/44, C = D.col;
+  const lt = shade(C, 1.3), md = shade(C, 1.0), dk = shade(C, 0.66);
+  let h = 11*s;
   if(D.passive){
     const [PX, PY] = iso(gx+.5, gy+.5);
     x.fillStyle = 'rgba(255,255,255,.10)';
     x.beginPath(); x.ellipse(PX, PY, D.aura*TW()/2, D.aura*TH()/2, 0, 0, 7); x.fill();
-    box(x, gx+.28, gy+.28, .44, .44, 7*s, shade(D.col,1.2), D.col, shade(D.col,.7));
-  } else if(f.k === 'seats'){
-    for(let r = 0; r < 2; r++){
-      box(x, gx+.12, gy+.12+r*.45, .76, .3, 5*s, shade(D.col,1.2), D.col, shade(D.col,.7));
-    }
-  } else {
-    box(x, gx+.1, gy+.14, .8, .62, h, shade(D.col,1.25), D.col, shade(D.col,.68));
-    const [TX, TY] = iso(gx+.5, gy+.45, h);
-    x.fillStyle = 'rgba(255,255,255,.9)'; x.fillRect(TX-8*s, TY-2*s, 16*s, 3.2*s);   // counter top
   }
-  const [X, Y] = iso(gx+.5, gy+.5, h + 4*s);
-  x.font = `${Math.round(15*s)}px serif`; x.textAlign = 'center'; x.fillText(D.icon, X, Y);
+  switch(FSH[f.k]){
+    case 'desk':
+      box(x, gx+.08, gy+.14, .84, .12, 21*s, shade(C,1.1), shade(C,.85), shade(C,.55));   // back panel
+      box(x, gx+.08, gy+.46, .84, .3, 9*s, lt, md, dk);                                   // counter
+      { const [DX, DY] = iso(gx+.5, gy+.46, 9*s);
+        x.fillStyle = 'rgba(255,255,255,.9)'; x.fillRect(DX-9*s, DY-2*s, 18*s, 3*s); }
+      h = 21*s; break;
+    case 'arch':
+      box(x, gx+.08, gy+.28, .14, .44, 27*s, '#cfd6e2', '#b4bdcc', '#8e97a8');
+      box(x, gx+.78, gy+.28, .14, .44, 27*s, '#cfd6e2', '#b4bdcc', '#8e97a8');
+      box(x, gx+.08, gy+.28, .84, .44, 33*s, lt, md, dk);                                 // lintel
+      h = 33*s; break;
+    case 'table':
+      box(x, gx+.38, gy+.38, .24, .24, 7*s, '#8a6a4a', '#7a5c3f', '#5e4530');              // pedestal
+      box(x, gx+.22, gy+.22, .56, .56, 11*s, lt, md, dk);                                  // top
+      box(x, gx+.0,  gy+.34, .14, .3, 7*s, '#b9c3d4', '#9aa5b8', '#7b8698');               // stools
+      box(x, gx+.86, gy+.34, .14, .3, 7*s, '#b9c3d4', '#9aa5b8', '#7b8698');
+      h = 11*s; break;
+    case 'shelf':
+      for(let i = 0; i < 2; i++) box(x, gx+.08+i*.46, gy+.16, .36, .68, 25*s, lt, md, dk);
+      x.fillStyle = 'rgba(255,255,255,.7)';
+      for(let i = 0; i < 2; i++){ const [SX, SY] = iso(gx+.26+i*.46, gy+.5, 25*s); x.fillRect(SX-5*s, SY-2*s, 10*s, 2*s); }
+      h = 25*s; break;
+    case 'bench':
+      for(let r = 0; r < 2; r++){
+        box(x, gx+.12, gy+.1+r*.44, .76, .26, 5*s, lt, md, dk);
+        box(x, gx+.12, gy+.1+r*.44, .76, .07, 12*s, shade(C,1.15), shade(C,.9), shade(C,.6));
+      }
+      h = 12*s; break;
+    case 'cab':
+      box(x, gx+.2, gy+.2, .6, .6, 23*s, lt, md, dk);
+      { const [BX, BY] = iso(gx+.5, gy+.8, 23*s);
+        x.fillStyle = 'rgba(255,255,255,.55)'; x.fillRect(BX-3*s, BY-13*s, 6*s, 9*s); }
+      h = 23*s; break;
+    case 'vend':
+      box(x, gx+.28, gy+.3, .44, .42, 25*s, lt, md, dk);
+      { const [VX, VY] = iso(gx+.5, gy+.72, 25*s);
+        x.fillStyle = 'rgba(190,235,255,.85)'; x.fillRect(VX-5*s, VY-14*s, 10*s, 9*s); }
+      h = 25*s; break;
+    case 'sofa':
+      box(x, gx+.1, gy+.14, .8, .12, 17*s, shade(C,1.15), shade(C,.9), shade(C,.6));       // back
+      box(x, gx+.1, gy+.24, .8, .48, 8*s, lt, md, dk);                                      // seat
+      box(x, gx+.02, gy+.24, .1, .48, 13*s, lt, md, dk);                                    // arms
+      box(x, gx+.88, gy+.24, .1, .48, 13*s, lt, md, dk);
+      h = 17*s; break;
+    case 'toys':
+      box(x, gx+.12, gy+.5, .32, .32, 9*s, lt, md, dk);
+      box(x, gx+.5, gy+.18, .28, .28, 14*s, shade(C,1.15), shade(C,.95), shade(C,.62));
+      box(x, gx+.3, gy+.12, .2, .2, 6*s, '#f2f2f2', '#dcdcdc', '#b8b8b8');
+      h = 14*s; break;
+    case 'plant':
+      box(x, gx+.36, gy+.36, .28, .28, 8*s, '#b07a4e', '#9a6840', '#79512f');               // pot
+      poly(x, [iso(gx+.5,gy+.5,31*s), iso(gx+.88,gy+.5,13*s), iso(gx+.5,gy+.5,11*s), iso(gx+.12,gy+.5,13*s)], shade(C,1.25), 'rgba(0,0,0,.3)');
+      poly(x, [iso(gx+.5,gy+.5,35*s), iso(gx+.5,gy+.88,15*s), iso(gx+.5,gy+.5,13*s), iso(gx+.5,gy+.12,15*s)], C, 'rgba(0,0,0,.3)');
+      h = 31*s; break;
+    default:
+      box(x, gx+.1, gy+.14, .8, .62, h, lt, md, dk);
+  }
+  const [X, Y] = iso(gx+.5, gy+.5, h + 5*s);
+  x.font = Math.round(13*s) + 'px serif'; x.textAlign = 'center'; x.fillText(D.icon, X, Y);
   if(f.q && f.q.length > 1){
     x.fillStyle = f.q.length > 3 ? '#ff7b7b' : '#ffd166';
     x.fillRect(X+9*s, Y-9*s, 11*s, 9*s);
-    x.fillStyle = '#10204a'; x.font = `bold ${Math.round(8*s)}px monospace`;
+    x.fillStyle = '#10204a'; x.font = 'bold ' + Math.round(8*s) + 'px monospace';
     x.fillText(f.q.length, X+14.5*s, Y-2*s);
   }
   if(sel && sel.fac === tkey(gx, gy)){ x.lineWidth = 2; tile(x, gx, gy, 1, 1, null, '#ffe36b'); }
@@ -1409,7 +1475,7 @@ function drawHUD(x){
 
 /* --- main render --- */
 function centreCam(){
-  const [X, Y] = iso(hallW()/2, HALL1 + 1.5);
+  const [X, Y] = view === "term" ? iso(hallW()/2, (HALL0+HALL1)/2) : iso(hallW()/2, AIR + 4);
   cam.x += CW/2 - X; cam.y += (CH+HUD)/2 - Y + 20; cam.set = true;
 }
 function drawScene(dt){
@@ -1418,13 +1484,14 @@ function drawScene(dt){
   ensureAirport();
   if(!cam.set) centreCam();
   const night = Math.max(0, Math.sin(G.time/110)) * 0.42, col = G.brand.color;
-  const RS = runways(), s = TW()/44;
+  const RS = runways(), s = TW()/44, T = view === 'term';
   const painting = mode !== 'sel' && mode !== 'del';
-  x.fillStyle = '#2d6b35'; x.fillRect(0, 0, CW, CH);
+  x.fillStyle = T ? '#1d2a3f' : '#2d6b35'; x.fillRect(0, 0, CW, CH);
 
   const LI = landInfo(), SALE = buyableLand();
-  const gx1 = Math.min(GW-1, LI.x1 + BS), gy1 = Math.min(GH-1, LI.y1 + BS);
-  for(let gy = 0; gy <= gy1; gy++) for(let gx = 0; gx <= gx1; gx++){
+  const gx1 = Math.min(GW-1, LI.x1 + BS);
+  const lo = T ? 0 : AIR, hi = T ? HALL1 : Math.min(GH-1, LI.y1 + BS);
+  for(let gy = lo; gy <= hi; gy++) for(let gx = 0; gx <= gx1; gx++){
     const [sx, sy] = iso(gx, gy);
     if(sx < -TW() || sx > CW + TW() || sy < -TH()*4 || sy > CH + TH()*6) continue;   // cull offscreen
     const ch = (gx+gy) & 1;
@@ -1448,16 +1515,16 @@ function drawScene(dt){
         : inHall(gx, gy) && !facAt(gx, gy);
       if(ok) tile(x, gx+.1, gy+.1, .8, .8, 'rgba(255,255,255,.16)', 'rgba(255,255,255,.34)');
     }
-    if(gy >= AIR && tType(gx, gy) === 'taxi'){ const [X, Y] = iso(gx+.5, gy+.5); x.fillStyle = '#f0c34a'; x.fillRect(X-6*s, Y-1.5*s, 12*s, 3*s); }
+    if(!T && tType(gx, gy) === 'taxi'){ const [X, Y] = iso(gx+.5, gy+.5); x.fillStyle = '#f0c34a'; x.fillRect(X-6*s, Y-1.5*s, 12*s, 3*s); }
   }
-  for(const R of RS){
+  if(!T) for(const R of RS){
     for(let gx = R.x0; gx <= R.x1; gx++){ const [X, Y] = iso(gx+.5, R.gy+.5); x.fillStyle = '#fff'; x.fillRect(X-8*s, Y-1.5*s, 16*s, 3*s); }
     const [LX, LY] = iso(R.x0+.5, R.gy+.5);
     x.fillStyle = 'rgba(255,255,255,.85)'; x.font = `bold ${Math.round(9*s)}px monospace`; x.textAlign = 'center';
     x.fillText(R.len*M_TILE + 'm', LX - 22*s, LY + 12*s);
     if(sel && sel.rwy === R.id){ x.lineWidth = 2; tile(x, R.x0, R.gy, R.len, 1, null, '#ffe36b'); }
   }
-  for(let i = 0; i < G.stands.length; i++){
+  if(!T) for(let i = 0; i < G.stands.length; i++){
     const st = G.stands[i], [X, Y] = iso(st.x+SS/2, st.y+SS/2);
     tile(x, st.x+.06, st.y+.06, SS-.12, SS-.12, null, '#f0c34a');
     x.fillStyle = 'rgba(255,255,255,.5)'; x.font = `bold ${Math.round(9*s)}px monospace`; x.textAlign = 'center';
@@ -1466,6 +1533,7 @@ function drawScene(dt){
   }
   for(const b of SALE){                                   // price tag on each block you could buy next
     const bx = b % BW, by = (b/BW)|0, c = landCost(b);
+    if(by*BS > hi || by*BS + BS - 1 < lo) continue;       // only blocks this view can reach
     const [LX, LY] = iso(bx*BS + BS/2, by*BS + BS/2);
     if(LX < -90 || LX > CW + 90 || LY < -40 || LY > CH + 40) continue;
     x.lineWidth = 2;
@@ -1481,54 +1549,54 @@ function drawScene(dt){
       x.fillText(TOKEN + ' ' + c.tok, LX, LY + 11*s);
     }
   }
-  // landside row: upgrade buildings and trees
-  const bAt = {}; BUILD.forEach(id => { bAt[G.layout[id]] = id; });
-  for(let gx = 0; gx < hallW(); gx++){
-    if(isPlot(gx, 0)){
-      const p = plotAt(gx, 0), id = bAt[p];
-      if(id) drawBuilding(x, gx, 0, id, G.upg[id], night);
-      else {
-        const [X, Y] = iso(gx+.5, .5);
-        tile(x, gx+.12, .12, .76, .76, 'rgba(255,255,255,.16)', 'rgba(255,255,255,.4)');
-        x.fillStyle = 'rgba(255,255,255,.75)'; x.fillRect(X-1.5*s, Y-5*s, 3*s, 10*s); x.fillRect(X-6*s, Y-1.5*s, 12*s, 3*s);
-      }
-      if(sel && (sel.plot === p || (id && sel.bld === id))){ x.lineWidth = 2; tile(x, gx, 0, 1, 1, null, '#ffe36b', id ? bldH(G.upg[id]) : 0); }
-    } else drawTree(x, gx, 0);
-  }
-  // terminal back wall, with the entrance doors at the right
-  const HW = hallW();
-  box(x, 0, HALL0-0.14, HW, 0.14, 20*s, '#e4ecf6', '#cdd8e8', '#9fb0c8');
-  box(x, -0.14, HALL0-0.14, 0.14, HALL1-HALL0+1.14, 20*s, '#e4ecf6', '#cdd8e8', '#9fb0c8');
-  box(x, HW, HALL0-0.14, 0.14, HALL1-HALL0+1.14, 20*s, '#dbe4f0', '#c3cfe0', '#95a6be');
-  const [EX, EY] = iso(HW-2, HALL0);
-  x.fillStyle = night > .3 ? '#ffe9a0' : '#5b8fd4'; x.fillRect(EX-10*s, EY-16*s, 26*s, 14*s);
-  // interior contents and people, painter-ordered by depth
   const items = [];
-  for(const j in G.fac){ const [gx, gy] = unkey(+j); items.push({d:gx+gy, fn:() => drawFacility(x, gx, gy, G.fac[j], night)}); }
-  for(const p of pax) items.push({d:p.x+p.y+0.4, fn:() => drawPerson(x, p.x, p.y, p, night)});
-  for(let i = 0; i < G.stands.length; i++){
-    const a = G.fleet[i], ctr = standCtr(i);
-    if(!a || !ctr) continue;
-    if(a.state === 'flying'){ items.push({d:999, fn:() => drawFlying(x, a, i, col)}); continue; }
-    items.push({d:ctr[0]+ctr[1], fn:() => {
-      drawPlane(x, ctr[0], ctr[1], a.type, col, 0, 0);
-      const bad = ['grounded','nofuel','noroute','notaxi','shortrwy'].includes(a.state);
-      if(bad || a.state === 'check' || a.state === 'hold'){
-        const [X, Y] = iso(ctr[0]+1, ctr[1]-1, 34*s);
-        x.fillStyle = bad ? '#ff7b7b' : '#ffd166'; x.fillRect(X-7*s, Y-7*s, 15*s, 15*s);
-        x.fillStyle = '#10204a'; x.font = `bold ${Math.round(11*s)}px monospace`; x.textAlign = 'center';
-        x.fillText(bad ? '!' : a.state === 'hold' ? 'H' : '*', X, Y+4*s);
-      }
-      if(sel && sel.ac === a.id){ x.lineWidth = 2; tile(x, G.stands[i].x, G.stands[i].y, SS, SS, null, '#ffe36b'); }
-    }});
+  if(T){
+    const bAt = {}; BUILD.forEach(id => { bAt[G.layout[id]] = id; });
+    for(let gx = 0; gx < hallW(); gx++){                  // landside row: upgrade buildings and trees
+      if(isPlot(gx, 0)){
+        const p = plotAt(gx, 0), id = bAt[p];
+        if(id) drawBuilding(x, gx, 0, id, G.upg[id], night);
+        else {
+          const [X, Y] = iso(gx+.5, .5);
+          tile(x, gx+.12, .12, .76, .76, 'rgba(255,255,255,.16)', 'rgba(255,255,255,.4)');
+          x.fillStyle = 'rgba(255,255,255,.75)'; x.fillRect(X-1.5*s, Y-5*s, 3*s, 10*s); x.fillRect(X-6*s, Y-1.5*s, 12*s, 3*s);
+        }
+        if(sel && (sel.plot === p || (id && sel.bld === id))){ x.lineWidth = 2; tile(x, gx, 0, 1, 1, null, '#ffe36b', id ? bldH(G.upg[id]) : 0); }
+      } else drawTree(x, gx, 0);
+    }
+    const HW = hallW();                                   // terminal walls, doors at the right
+    box(x, 0, HALL0-0.14, HW, 0.14, 20*s, '#e4ecf6', '#cdd8e8', '#9fb0c8');
+    box(x, -0.14, HALL0-0.14, 0.14, HALL1-HALL0+1.14, 20*s, '#e4ecf6', '#cdd8e8', '#9fb0c8');
+    box(x, HW, HALL0-0.14, 0.14, HALL1-HALL0+1.14, 20*s, '#dbe4f0', '#c3cfe0', '#95a6be');
+    const [EX, EY] = iso(HW-2, HALL0);
+    x.fillStyle = night > .3 ? '#ffe9a0' : '#5b8fd4'; x.fillRect(EX-10*s, EY-16*s, 26*s, 14*s);
+    for(const j in G.fac){ const [gx, gy] = unkey(+j); items.push({d:gx+gy, fn:() => drawFacility(x, gx, gy, G.fac[j], night)}); }
+    for(const p of pax) items.push({d:p.x+p.y+0.4, fn:() => drawPerson(x, p.x, p.y, p, night)});
+  } else {
+    for(let i = 0; i < G.stands.length; i++){
+      const a = G.fleet[i], ctr = standCtr(i);
+      if(!a || !ctr) continue;
+      if(a.state === 'flying'){ items.push({d:999, fn:() => drawFlying(x, a, i, col)}); continue; }
+      items.push({d:ctr[0]+ctr[1], fn:() => {
+        drawPlane(x, ctr[0], ctr[1], a.type, col, 0, 0);
+        const bad = ['grounded','nofuel','noroute','notaxi','shortrwy'].includes(a.state);
+        if(bad || a.state === 'check' || a.state === 'hold'){
+          const [X, Y] = iso(ctr[0]+1, ctr[1]-1, 34*s);
+          x.fillStyle = bad ? '#ff7b7b' : '#ffd166'; x.fillRect(X-7*s, Y-7*s, 15*s, 15*s);
+          x.fillStyle = '#10204a'; x.font = `bold ${Math.round(11*s)}px monospace`; x.textAlign = 'center';
+          x.fillText(bad ? '!' : a.state === 'hold' ? 'H' : '*', X, Y+4*s);
+        }
+        if(sel && sel.ac === a.id){ x.lineWidth = 2; tile(x, G.stands[i].x, G.stands[i].y, SS, SS, null, '#ffe36b'); }
+      }});
+    }
+    for(let i = G.stands.length; i < G.fleet.length; i++)
+      if(G.fleet[i].state === 'flying') items.push({d:999, fn:() => drawFlying(x, G.fleet[i], i, col)});
   }
-  for(let i = G.stands.length; i < G.fleet.length; i++)
-    if(G.fleet[i].state === 'flying') items.push({d:999, fn:() => drawFlying(x, G.fleet[i], i, col)});
   items.sort((a, b) => a.d - b.d).forEach(it => it.fn());
 
   x.font = `bold ${Math.round(10*s)}px monospace`; x.textAlign = 'center';
   floats = floats.filter(f => (f.t += dt) < 1.6);
-  for(const f of floats){ const ctr = standCtr(f.i); if(!ctr) continue; const [X, Y] = iso(ctr[0], ctr[1], 30*s); x.fillStyle = `rgba(255,227,107,${1-f.t/1.6})`; x.fillText(f.txt, X, Y - f.t*16); }
+  if(!T) for(const f of floats){ const ctr = standCtr(f.i); if(!ctr) continue; const [X, Y] = iso(ctr[0], ctr[1], 30*s); x.fillStyle = `rgba(255,227,107,${1-f.t/1.6})`; x.fillText(f.txt, X, Y - f.t*16); }
   if(night > 0.02){ x.fillStyle = `rgba(8,14,48,${night})`; x.fillRect(0, 0, CW, CH); }
   drawHUD(x);
 }
@@ -1544,16 +1612,22 @@ const modeLabel = m => { const e = MODE_GROUPS.flatMap(g => g[1]).find(z => z[0]
 const MODES = MODE_GROUPS.flatMap(g => g[1]).map(z => [z[0], modeLabel(z[0])]);
 // On a narrow screen the fourteen terminal tools run to eight rows, so each named group folds
 // behind a header. The header is hidden on desktop, where the groups always show.
+// Only the group belonging to the half you are looking at is listed.
 let toolGroup = '';
 function toolbarHTML(){
+  const vb = (v, l) => '<button class="btn sm ' + (view === v ? 'pri' : '') +
+    '" data-act="view" data-arg="' + v + '">' + l + '</button>';
   return MODE_GROUPS.map(g => {
     const name = g[0];
+    if(name === 'Terminal' && view !== 'term') return '';
+    if(name === 'Airside' && view !== 'air') return '';
     const btns = g[1].map(z => '<button class="btn sm ' + (z[0] === mode ? 'pri' : '') +
       '" data-act="mode" data-arg="' + z[0] + '">' + modeLabel(z[0]) + '</button>').join('');
     if(!name){
-      const view = '<button class="btn sm" data-act="zoom">\u{1F50D} ' + ['Close', 'Wide', 'Whole map'][zoom] +
+      const look = '<button class="btn sm" data-act="zoom">\u{1F50D} ' + ['Close', 'Wide', 'Whole map'][zoom] +
         '</button><button class="btn sm" data-act="centre">\u2316 Centre</button>';
-      return '<div class="row tools">' + btns + view + '</div>';
+      return '<div class="row tools vrow">' + vb('term', '\u{1F3E2} Terminal') + vb('air', '\u{1F6EB} Airside') + '</div>' +
+        '<div class="row tools">' + btns + look + '</div>';
     }
     const open = toolGroup === name, cur = g[1].find(z => z[0] === mode);
     return '<div class="tgroup' + (open ? ' open' : '') + '">' +
@@ -1562,7 +1636,8 @@ function toolbarHTML(){
       (cur && !open ? '<span class="tgcur">' + modeLabel(cur[0]) + '</span>' : '') + '</button>' +
       '<div class="row tools tgbody"><span class="glab">' + name + '</span>' + btns + '</div></div>';
   }).join('');
-}const pick = (px, py) => { const u = (px-cam.x)/(TW()/2), v = (py-cam.y)/(TH()/2); return [Math.floor((u+v)/2), Math.floor((v-u)/2)]; };
+}
+const pick = (px, py) => { const u = (px-cam.x)/(TW()/2), v = (py-cam.y)/(TH()/2); return [Math.floor((u+v)/2), Math.floor((v-u)/2)]; };
 const evPos = (e, c) => {                                     // NaN while the canvas has no size, e.g. a hidden tab
   const r = c.getBoundingClientRect();
   return r.width && r.height ? [(e.clientX-r.left)/r.width*CW, (e.clientY-r.top)/r.height*CH] : [NaN, NaN];
@@ -2003,8 +2078,9 @@ const ACT = {
   dispatchAll: () => G.fleet.forEach(ac => { if(ac.state==='ready') tryDepart(ac); }),
   checkAll: () => G.fleet.forEach(ac => { if(['ready','grounded'].includes(ac.state) && ac.cond<95) startCheck(ac); }),
   sell: a => { const i = G.fleet.findIndex(z=>z.id==a); if(i<0 || G.fleet[i].state==='flying') return; G.cash += sellValue(G.fleet[i]); G.fleet.splice(i,1); sel = null; build(); },
-  mode: a => { mode = a; sel = null; build(); },
+  mode: a => { mode = a; sel = null; if(FAC[a]) setView('term'); else if(a === 'stand' || a === 'taxi' || a === 'run') setView('air'); build(); },
   group: a => { toolGroup = toolGroup === a ? "" : a; build(); },
+  view: a => { setView(a); sel = null; build(); },
   unsel: () => { sel = null; renderPanel(); },
   land: a => { if(buyLand(+a)){ sel = null; build(); } },
   licence: () => { if(buyLicence()) build(); },
