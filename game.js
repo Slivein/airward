@@ -766,16 +766,27 @@ let zoom = 0, cam = {x:0, y:0, set:false};
 const ZOOM = [{TW:44, TH:22, WP:11}, {TW:28, TH:14, WP:17}, {TW:16, TH:8, WP:16}];  // close / wide / whole map
 const TZOOM = [{TW:64, TH:32, WP:8}, {TW:40, TH:20, WP:12}, {TW:24, TH:12, WP:16}];  // the same three, indoors
 let view = 'air';                                             // which half of the airport you are looking at
-const camOf = {air:{x:0,y:0,set:false}, term:{x:0,y:0,set:false}}, zoomOf = {air:0, term:0};
+const camOf = {air:{x:0,y:0,set:false}, term:{x:0,y:0,set:false}}, zoomOf = {air:0, term:0}, turnOf = {air:0, term:0};
 function setView(v){
   if(v === view) return;
-  camOf[view] = {x:cam.x, y:cam.y, set:cam.set}; zoomOf[view] = zoom;
-  view = v; zoom = zoomOf[v];
+  camOf[view] = {x:cam.x, y:cam.y, set:cam.set}; zoomOf[view] = zoom; turnOf[view] = turn;
+  view = v; zoom = zoomOf[v]; turn = turnOf[v];
   const k = camOf[v]; cam.x = k.x; cam.y = k.y; cam.set = k.set;
 }
 const Z = () => (view === "term" ? TZOOM : ZOOM)[zoom];
 const TW = () => Z().TW, TH = () => Z().TH, WP = () => Z().WP;
-const iso = (gx, gy, z = 0) => [cam.x + (gx-gy)*TW()/2, cam.y + (gx+gy)*TH()/2 - z];
+let turn = 0;                                                 // quarter turns of the whole map, 0..3
+const rotXY = (gx, gy) => {                                   // world square -> the square the camera sees
+  switch(turn){
+    case 1:  return [GH - gy, gx];
+    case 2:  return [GW - gx, GH - gy];
+    case 3:  return [gy, GW - gx];
+    default: return [gx, gy];
+  }
+};
+const isoRaw = (u, v, z = 0) => [cam.x + (u-v)*TW()/2, cam.y + (u+v)*TH()/2 - z];
+const iso = (gx, gy, z = 0) => { const [u, v] = rotXY(gx, gy); return isoRaw(u, v, z); };
+const depth = (gx, gy) => { const [u, v] = rotXY(gx, gy); return u + v; };
 const bldH = lvl => (6 + 5*Math.min(4, 1 + Math.floor(lvl/3))) * TW()/26;
 const bIdx = (gx, gy) => ((gy/BS)|0)*BW + ((gx/BS)|0);
 const owned = b => !!(G.land && G.land[b]);
@@ -1246,11 +1257,26 @@ function poly(x, pts, fill, line){
   if(fill){ x.fillStyle = fill; x.fill(); }
   if(line){ x.strokeStyle = line; x.lineWidth = 1; x.stroke(); }
 }
-function tile(x, gx, gy, w, d, fill, line, z = 0){ poly(x, [iso(gx,gy,z), iso(gx+w,gy,z), iso(gx+w,gy+d,z), iso(gx,gy+d,z)], fill, line); }
+// Footprints are rotated into view space first, so the lit faces stay lit whichever way the map is turned.
+function vrect(gx, gy, w, d){
+  const [u0, v0] = rotXY(gx, gy), [u1, v1] = rotXY(gx+w, gy+d);
+  return [Math.min(u0,u1), Math.min(v0,v1), Math.abs(u1-u0), Math.abs(v1-v0)];
+}
+function tile(x, gx, gy, w, d, fill, line, z = 0){
+  const [a, b, W, D] = vrect(gx, gy, w, d);
+  poly(x, [isoRaw(a,b,z), isoRaw(a+W,b,z), isoRaw(a+W,b+D,z), isoRaw(a,b+D,z)], fill, line);
+}
+// The ground sits on a slab, so the airport reads as a model on a table rather than a flat map.
+function plinth(x, gx, gy, w, d, p){
+  const [a, b, W, D] = vrect(gx, gy, w, d);
+  poly(x, [isoRaw(a+W,b,0), isoRaw(a+W,b+D,0), isoRaw(a+W,b+D,-p), isoRaw(a+W,b,-p)], '#1b2537', 'rgba(0,0,0,.55)');
+  poly(x, [isoRaw(a,b+D,0), isoRaw(a+W,b+D,0), isoRaw(a+W,b+D,-p), isoRaw(a,b+D,-p)], '#121a29', 'rgba(0,0,0,.55)');
+}
 function box(x, gx, gy, w, d, h, top, left, right){
-  poly(x, [iso(gx+w,gy,0), iso(gx+w,gy+d,0), iso(gx+w,gy+d,h), iso(gx+w,gy,h)], right, 'rgba(0,0,0,.4)');
-  poly(x, [iso(gx,gy+d,0), iso(gx+w,gy+d,0), iso(gx+w,gy+d,h), iso(gx,gy+d,h)], left, 'rgba(0,0,0,.4)');
-  poly(x, [iso(gx,gy,h), iso(gx+w,gy,h), iso(gx+w,gy+d,h), iso(gx,gy+d,h)], top, 'rgba(0,0,0,.3)');
+  const [a, b, W, D] = vrect(gx, gy, w, d);
+  poly(x, [isoRaw(a+W,b,0), isoRaw(a+W,b+D,0), isoRaw(a+W,b+D,h), isoRaw(a+W,b,h)], right, 'rgba(0,0,0,.4)');
+  poly(x, [isoRaw(a,b+D,0), isoRaw(a+W,b+D,0), isoRaw(a+W,b+D,h), isoRaw(a,b+D,h)], left, 'rgba(0,0,0,.4)');
+  poly(x, [isoRaw(a,b,h), isoRaw(a+W,b,h), isoRaw(a+W,b+D,h), isoRaw(a,b+D,h)], top, 'rgba(0,0,0,.3)');
 }
 
 // Chibi passenger: big head, two eyes, little body. Scales with the zoom level.
@@ -1368,7 +1394,8 @@ function drawFacility(x, gx, gy, f, night){
   if(sel && sel.fac === tkey(gx, gy)){ x.lineWidth = 2; tile(x, gx, gy, 1, 1, null, '#ffe36b'); }
 }
 
-function drawPlane(x, wx, wy, t, col, rot, z){
+function drawPlane(x, wx, wy, t, col, rot0, z){
+  const rot = rot0 + turn*Math.PI/2;
   const w = WP(), L = 14 + t*3.2, S = 16 + Math.round(t*3.4), fw = t > 4 ? 7 : 5, k = TW()/(2*w);
   const [X, Y] = iso(wx, wy);
   const wz = Math.max(2, Math.round(1.2*k)), bh = Math.max(3, Math.round((2 + t*0.55)*k));
@@ -1491,6 +1518,14 @@ function drawScene(dt){
   const LI = landInfo(), SALE = buyableLand();
   const gx1 = Math.min(GW-1, LI.x1 + BS);
   const lo = T ? 0 : AIR, hi = T ? HALL1 : Math.min(GH-1, LI.y1 + BS);
+  const slab = Object.keys(G.land).map(Number)
+    .map(b => ({bx:(b % BW)*BS, by:((b/BW)|0)*BS}))
+    .filter(z => z.by + BS - 1 >= lo && z.by <= hi)
+    .sort((p, q) => depth(q.bx+BS/2, q.by+BS/2) - depth(p.bx+BS/2, p.by+BS/2));
+  for(const z of slab){
+    const y0 = Math.max(z.by, lo), y1 = Math.min(z.by + BS, hi + 1);
+    plinth(x, z.bx, y0, BS, y1 - y0, 15*s);
+  }
   for(let gy = lo; gy <= hi; gy++) for(let gx = 0; gx <= gx1; gx++){
     const [sx, sy] = iso(gx, gy);
     if(sx < -TW() || sx > CW + TW() || sy < -TH()*4 || sy > CH + TH()*6) continue;   // cull offscreen
@@ -1553,31 +1588,42 @@ function drawScene(dt){
   if(T){
     const bAt = {}; BUILD.forEach(id => { bAt[G.layout[id]] = id; });
     for(let gx = 0; gx < hallW(); gx++){                  // landside row: upgrade buildings and trees
-      if(isPlot(gx, 0)){
-        const p = plotAt(gx, 0), id = bAt[p];
-        if(id) drawBuilding(x, gx, 0, id, G.upg[id], night);
-        else {
-          const [X, Y] = iso(gx+.5, .5);
-          tile(x, gx+.12, .12, .76, .76, 'rgba(255,255,255,.16)', 'rgba(255,255,255,.4)');
-          x.fillStyle = 'rgba(255,255,255,.75)'; x.fillRect(X-1.5*s, Y-5*s, 3*s, 10*s); x.fillRect(X-6*s, Y-1.5*s, 12*s, 3*s);
-        }
-        if(sel && (sel.plot === p || (id && sel.bld === id))){ x.lineWidth = 2; tile(x, gx, 0, 1, 1, null, '#ffe36b', id ? bldH(G.upg[id]) : 0); }
-      } else drawTree(x, gx, 0);
+      const gxx = gx;
+      items.push({d: depth(gxx, 0), fn: () => {
+        if(isPlot(gxx, 0)){
+          const p = plotAt(gxx, 0), id = bAt[p];
+          if(id) drawBuilding(x, gxx, 0, id, G.upg[id], night);
+          else {
+            const [X, Y] = iso(gxx+.5, .5);
+            tile(x, gxx+.12, .12, .76, .76, 'rgba(255,255,255,.16)', 'rgba(255,255,255,.4)');
+            x.fillStyle = 'rgba(255,255,255,.75)'; x.fillRect(X-1.5*s, Y-5*s, 3*s, 10*s); x.fillRect(X-6*s, Y-1.5*s, 12*s, 3*s);
+          }
+          if(sel && (sel.plot === p || (id && sel.bld === id))){ x.lineWidth = 2; tile(x, gxx, 0, 1, 1, null, '#ffe36b', id ? bldH(G.upg[id]) : 0); }
+        } else drawTree(x, gxx, 0);
+      }});
     }
-    const HW = hallW();                                   // terminal walls, doors at the right
-    box(x, 0, HALL0-0.14, HW, 0.14, 20*s, '#e4ecf6', '#cdd8e8', '#9fb0c8');
-    box(x, -0.14, HALL0-0.14, 0.14, HALL1-HALL0+1.14, 20*s, '#e4ecf6', '#cdd8e8', '#9fb0c8');
-    box(x, HW, HALL0-0.14, 0.14, HALL1-HALL0+1.14, 20*s, '#dbe4f0', '#c3cfe0', '#95a6be');
-    const [EX, EY] = iso(HW-2, HALL0);
-    x.fillStyle = night > .3 ? '#ffe9a0' : '#5b8fd4'; x.fillRect(EX-10*s, EY-16*s, 26*s, 14*s);
-    for(const j in G.fac){ const [gx, gy] = unkey(+j); items.push({d:gx+gy, fn:() => drawFacility(x, gx, gy, G.fac[j], night)}); }
-    for(const p of pax) items.push({d:p.x+p.y+0.4, fn:() => drawPerson(x, p.x, p.y, p, night)});
+    const HW = hallW(), mid = depth(HW/2, (HALL0+HALL1+1)/2);   // only the two far walls, so the hall stays open
+    const walls = [
+      {d: depth(HW/2, HALL0), g:[0, HALL0-0.14, HW, 0.14], door:true},
+      {d: depth(HW/2, HALL1+1), g:[0, HALL1+1, HW, 0.14]},
+      {d: depth(0, (HALL0+HALL1)/2), g:[-0.14, HALL0-0.14, 0.14, HALL1-HALL0+1.14]},
+      {d: depth(HW, (HALL0+HALL1)/2), g:[HW, HALL0-0.14, 0.14, HALL1-HALL0+1.14]},
+    ].filter(w => w.d < mid).sort((a, b) => a.d - b.d);
+    for(const w of walls){
+      box(x, w.g[0], w.g[1], w.g[2], w.g[3], 20*s, '#e4ecf6', '#cdd8e8', '#9fb0c8');
+      if(w.door){
+        const [EX, EY] = iso(HW-2, HALL0);
+        x.fillStyle = night > .3 ? '#ffe9a0' : '#5b8fd4'; x.fillRect(EX-10*s, EY-16*s, 26*s, 14*s);
+      }
+    }
+    for(const j in G.fac){ const [gx, gy] = unkey(+j); items.push({d:depth(gx, gy), fn:() => drawFacility(x, gx, gy, G.fac[j], night)}); }
+    for(const p of pax) items.push({d:depth(p.x, p.y) + 0.4, fn:() => drawPerson(x, p.x, p.y, p, night)});
   } else {
     for(let i = 0; i < G.stands.length; i++){
       const a = G.fleet[i], ctr = standCtr(i);
       if(!a || !ctr) continue;
       if(a.state === 'flying'){ items.push({d:999, fn:() => drawFlying(x, a, i, col)}); continue; }
-      items.push({d:ctr[0]+ctr[1], fn:() => {
+      items.push({d:depth(ctr[0], ctr[1]), fn:() => {
         drawPlane(x, ctr[0], ctr[1], a.type, col, 0, 0);
         const bad = ['grounded','nofuel','noroute','notaxi','shortrwy'].includes(a.state);
         if(bad || a.state === 'check' || a.state === 'hold'){
@@ -1602,7 +1648,16 @@ function drawScene(dt){
 }
 
 /* --- interaction --- */
-const pick = (px, py) => { const u = (px-cam.x)/(TW()/2), v = (py-cam.y)/(TH()/2); return [Math.floor((u+v)/2), Math.floor((v-u)/2)]; };
+const pickF = (px, py) => {                                   // screen -> continuous world square
+  const a = (px-cam.x)/(TW()/2), b = (py-cam.y)/(TH()/2), u = (a+b)/2, v = (b-a)/2;
+  switch(turn){
+    case 1:  return [v, GH - u];
+    case 2:  return [GW - u, GH - v];
+    case 3:  return [GW - v, u];
+    default: return [u, v];
+  }
+};
+const pick = (px, py) => { const [gx, gy] = pickF(px, py); return [Math.floor(gx), Math.floor(gy)]; };
 const evPos = (e, c) => {                                     // NaN while the canvas has no size, e.g. a hidden tab
   const r = c.getBoundingClientRect();
   return r.width && r.height ? [(e.clientX-r.left)/r.width*CW, (e.clientY-r.top)/r.height*CH] : [NaN, NaN];
@@ -1788,7 +1843,8 @@ function toolbarHTML(){
       '" data-act="mode" data-arg="' + z[0] + '">' + modeLabel(z[0]) + '</button>').join('');
     if(!name){
       const look = '<button class="btn sm" data-act="zoom">\u{1F50D} ' + ['Close', 'Wide', 'Whole map'][zoom] +
-        '</button><button class="btn sm" data-act="centre">\u2316 Centre</button>';
+        '</button><button class="btn sm" data-act="turn">\u27F3 Rotate</button>' +
+        '<button class="btn sm" data-act="centre">\u2316 Centre</button>';
       return '<div class="row tools vrow">' + vb('term', '\u{1F3E2} Terminal') + vb('air', '\u{1F6EB} Airside') + '</div>' +
         '<div class="row tools">' + btns + look + '</div>';
     }
@@ -2081,6 +2137,13 @@ const ACT = {
   mode: a => { mode = a; sel = null; if(FAC[a]) setView('term'); else if(a === 'stand' || a === 'taxi' || a === 'run') setView('air'); build(); },
   group: a => { toolGroup = toolGroup === a ? "" : a; build(); },
   view: a => { setView(a); sel = null; build(); },
+  turn: () => {
+    const [gx, gy] = pickF(CW/2, (CH+HUD)/2);                 // keep the middle of the screen put
+    turn = (turn + 1) % 4;
+    const [X, Y] = iso(gx, gy);
+    cam.x += CW/2 - X; cam.y += (CH+HUD)/2 - Y; cam.set = true;
+    build();
+  },
   unsel: () => { sel = null; renderPanel(); },
   land: a => { if(buyLand(+a)){ sel = null; build(); } },
   licence: () => { if(buyLicence()) build(); },
