@@ -173,3 +173,19 @@ nav button.spd{padding:10px 13px;min-width:46px;font-size:15px}
 .aover .card{margin:0;border-color:var(--brand)}
 .aover .cat{grid-template-columns:1fr auto !important;gap:10px}
 .aoverx{position:absolute;top:10px;right:10px;min-height:30px;padding:4px 10px;line-height:1}
+
+/* departures board */
+.board{width:100%;border-collapse:collapse;font-size:15px}
+.board td{padding:7px 8px;border-top:1px solid var(--line);vertical-align:middle}
+.board tr:first-child td{border-top:0}
+.board tr[data-st=hold] .chip{border-color:var(--warn);color:var(--warn)}
+.board tr[data-st=flying] .chip{border-color:var(--brand);color:var(--brand)}
+.board tr[data-st=grounded] .chip,.board tr[data-st=nofuel] .chip,.board tr[data-st=noroute] .chip,
+.board tr[data-st=notaxi] .chip,.board tr[data-st=shortrwy] .chip{border-color:var(--bad);color:var(--bad)}
+@media(max-width:760px){
+  .board{font-size:13px}
+  .board td{padding:5px 4px}
+  .board .bcol{display:none}
+  .board td:first-child .small{display:none}
+  .board td:nth-child(2){white-space:nowrap}
+}

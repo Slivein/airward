@@ -485,6 +485,8 @@ function autoExpandStep(){
     if(G.cash >= tc*r*2 && buyUpgrade('tank')) return;
   }
   if(G.stands.length < gates() && G.fleet.length >= G.stands.length && autoPlaceStand()) return;
+  const held = G.fleet.filter(a => a.state === 'hold').length;
+  if(held >= 2 && held >= G.fleet.length*0.25 && G.cash >= runCost()*r*6 && autoAddRunway()) return;
   const biggest = TYPES.reduce((m, t, i) => G.level >= t.lvl && G.cash >= t.cost*r ? i : m, -1);
   if(biggest >= 0 && RWY[biggest] > runwayLen() && G.cash >= runCost()*r*3 && autoExtendRunway()) return;
   let pick=null;
@@ -640,6 +642,10 @@ function updateUI(){
     const a = G.fleet.find(z=>z.id==el.dataset.id); if(!a) return;
     if(el.dataset.state !== a.state) el.dataset.state = a.state;
     const cb = el.querySelector('.b-check'); if(cb) cb.disabled = G.cash < checkCost(a);
+  });
+  document.querySelectorAll('[data-acrow]').forEach(el => {
+    const a = G.fleet.find(z => z.id == el.dataset.acrow);
+    if(a && el.dataset.st !== a.state) el.dataset.st = a.state;
   });
   const co = $('#charterBtn'); if(co) co.disabled = G.charterCD > 0;
   if(dirty && !(document.activeElement && /SELECT|INPUT/.test(document.activeElement.tagName))){ dirty=false; build(); }
@@ -1175,6 +1181,35 @@ function autoExtendRunway(){
   for(const gx of [R.x0-1, R.x1+1]) if(inAir(gx, R.gy) && !tType(gx, R.gy) && standIdxAt(gx, R.gy) < 0){
     const c = runCost(); if(G.cash < c) return false;
     G.cash -= c; G.tiles[tkey(gx, R.gy)] = 'run'; invalidate(); return true;
+  }
+  return false;
+}
+// One runway launches one aircraft at a time, so a queue means another strip, not another aeroplane.
+// Pick the spur column first, then hang the strip off whichever side of it is clear.
+function autoAddRunway(){
+  const want = clamp(licTiles(), MIN_RUN, 14), RS = runways();
+  const free = (gx, gy) => inAir(gx, gy) && !tType(gx, gy) && standIdxAt(gx, gy) < 0;
+  const clear = (x0, gy) => { for(let gx = x0; gx < x0+want; gx++) if(!free(gx, gy)) return false; return true; };
+  for(let gy = AIR + 2; gy < GH; gy++){
+    if(RS.some(R => Math.abs(R.gy - gy) < 2)) continue;              // keep strips apart
+    for(let cx = 0; cx < GW; cx++){
+      if(!free(cx, gy)) continue;
+      let hit = -1;                                                  // nearest taxiway straight up this column
+      for(let y = gy - 1; y >= AIR; y--){
+        if(tType(cx, y) === 'taxi'){ hit = y; break; }
+        if(!free(cx, y)) break;
+      }
+      if(hit < 0) continue;
+      const x0 = clear(cx+1, gy) ? cx+1 : (cx-want >= 0 && clear(cx-want, gy) ? cx-want : -1);
+      if(x0 < 0) continue;
+      const taxis = 1 + (gy - hit - 1);
+      if(G.cash < want*runCost() + taxis*taxiCost() + 5000) return false;
+      for(let gx = x0; gx < x0+want; gx++){ G.cash -= runCost(); G.tiles[tkey(gx, gy)] = 'run'; }
+      for(let y = hit + 1; y <= gy; y++){ G.cash -= taxiCost(); G.tiles[tkey(cx, y)] = 'taxi'; }
+      invalidate();
+      logMsg('\u{1F6EB} Network planning opened another runway: ' + want*M_TILE + ' m.');
+      return true;
+    }
   }
   return false;
 }
@@ -1794,6 +1829,31 @@ function belowHTML(){                                           // the card belo
   sel = s;
   return h;
 }
+const BLOCKED = ['grounded','nofuel','noroute','notaxi','shortrwy'];
+function boardHTML(){
+  if(!G.fleet.length) return '<div class="card"><h3>\u{1F6EB} Departures</h3><p class="muted">No aircraft yet — buy one on the Fleet tab.</p></div>';
+  const rank = a => a.state === 'hold' ? 0 : BLOCKED.includes(a.state) ? 1 : a.state === 'ready' ? 2 : a.state === 'flying' ? 4 : 3;
+  const held = G.fleet.filter(a => a.state === 'hold').length;
+  const stuck = G.fleet.filter(a => BLOCKED.includes(a.state)).length;
+  const flying = G.fleet.filter(a => a.state === 'flying').length;
+  const rws = runways().length;
+  const rows = G.fleet.map((a, i) => ({a, i})).sort((x, y) => rank(x.a) - rank(y.a) || x.i - y.i).map(({a, i}) => {
+    const R = a.rw != null ? runways().find(z => z.id === a.rw) : null;
+    return '<tr data-acrow="' + a.id + '" data-st="' + a.state + '">' +
+      '<td><b>' + G.brand.code + '-' + a.id + '</b><div class="muted small">' + TYPES[a.type].name + '</div></td>' +
+      '<td>' + (a.route ? G.brand.hub + ' \u21C4 ' + a.route : '<span class="muted">no route</span>') + '</td>' +
+      '<td><span class="chip" data-bind="ac:' + a.id + ':st"></span></td>' +
+      '<td class="bcol muted small">' + (i < G.stands.length ? 'Stand ' + (i+1) : '\u2014') +
+      (R ? '<br>' + R.len*M_TILE + ' m strip' : '') + '</td></tr>';
+  }).join('');
+  const warn = held >= 3 && held >= G.fleet.length*0.34
+    ? '<p class="bad"><b>' + held + '</b> aircraft are queueing for ' + rws + ' runway' + (rws === 1 ? '' : 's')
+      + ' \u2014 another runway would clear the backlog.</p>' : '';
+  return '<div class="card"><h3>\u{1F6EB} Departures</h3>' +
+    '<p class="muted"><b>' + flying + '</b> airborne \u00b7 <b>' + held + '</b> holding \u00b7 <b>' + stuck +
+    '</b> blocked \u00b7 <b>' + rws + '</b> runway' + (rws === 1 ? '' : 's') + '</p>' + warn +
+    '<table class="board">' + rows + '</table></div>';
+}
 function renderPanel(){
   const over = $('#aover'), p = $('#apanel');
   if(over) over.innerHTML = overHTML();
@@ -1804,7 +1864,7 @@ function bAirport(){
   ensureAirport();
   return `<div class="card pix"><canvas id="scene" width="${CW}" height="${CH}"></canvas><div id="aover">${overHTML()}</div></div>
   <div class="card">${toolbarHTML()}</div>
-  <div id="apanel">${belowHTML()}</div>`;
+  <div id="apanel">${belowHTML()}</div>${boardHTML()}`;
 }
 
 function bFuel(){
