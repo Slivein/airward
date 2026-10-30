@@ -190,3 +190,6 @@ nav button.spd{padding:10px 13px;min-width:46px;font-size:15px}
   .board td:nth-child(2){white-space:nowrap}
 }
 .row.tools.vrow{padding-bottom:7px;border-bottom:1px solid var(--line)}
+.lgl{min-width:0;margin-left:10px}
+.btn.sm.lt{padding:7px 9px;min-width:34px;font-size:15px;line-height:1}
+@media(max-width:760px){ .lgl{display:none} .btn.sm.lt{padding:7px 8px;min-width:32px} }

@@ -1018,6 +1018,9 @@ function ensureHall(){
 }
 
 /* --- passengers --- */
+const NAMES = ['Ana','Ben','Cleo','Dara','Eli','Finn','Gio','Hana','Ira','Jo','Kai','Lena','Mika','Nina',
+  'Omar','Pia','Quinn','Rhea','Sam','Tess','Uma','Vik','Wren','Xan','Yuri','Zed','Alba','Bo','Cass','Dev',
+  'Esme','Fox','Gil','Hugo','Iris','Jun','Kit','Lux','Milo','Noor','Otto','Peri','Rafa','Saki','Theo','Vera'];
 const PAX_MAX = 70, SESS = Math.random();
 const paxFee = f => Math.round(FAC[f].fee * (1 + G.level*0.16) * revMult());
 function spawnPax(n){
@@ -1026,7 +1029,8 @@ function spawnPax(n){
     pax.push({s:SESS, x:ex, y:ey + (Math.random()-0.5)*1.2, step:'checkin', at:null, slot:0, t:0,
       mood:62 + Math.random()*22, c1:PCOL[(Math.random()*PCOL.length)|0],
       sk:SKIN[(Math.random()*SKIN.length)|0], hr:HAIR[(Math.random()*HAIR.length)|0],
-      em:null, et:0, spent:0, visits:0, flip:true, bag:Math.random() < .55, bob:Math.random()*6});
+      em:null, et:0, spent:0, visits:0, flip:true, bag:Math.random() < .55, bob:Math.random()*6,
+      nm:NAMES[(Math.random()*NAMES.length)|0]});
   }
 }
 function paxArrive(seats){ spawnPax(clamp(Math.round(seats/28), 1, 6)); }
@@ -1300,6 +1304,15 @@ function drawPerson(x, gx, gy, p, night){
   const sad = p.mood < 35;
   x.fillStyle = sad ? '#b4404a' : '#8a5a4a';
   x.fillRect(bx-1.2*s, by-(sad?10.6:11.0)*s, 2.4*s, 0.9*s);
+  if(p.nm && !p.slot && view === 'term' && zoom === 0){                     // name tag: close up indoors,
+                                                                           // and not for people stacked in a queue
+    x.font = 'bold ' + Math.round(8*s) + 'px system-ui'; x.textAlign = 'center';
+    const w = x.measureText(p.nm).width + 7*s, ty = by - 20.5*s;
+    x.fillStyle = 'rgba(12,20,36,.78)';
+    if(x.roundRect){ x.beginPath(); x.roundRect(bx - w/2, ty - 7*s, w, 10*s, 4*s); x.fill(); }
+    else x.fillRect(bx - w/2, ty - 7*s, w, 10*s);   // roundRect is recent; never let it break the frame
+    x.fillStyle = '#dbe6f6'; x.fillText(p.nm, bx, ty + 0.8*s);
+  }
   if(p.em && p.et > 0){                                                    // emote bubble
     const T = {happy:['♥','#ff8fb0'], buy:['$','#ffd166'], wait:['…','#cbd6e8'], angry:['!','#ff6b6b']}[p.em];
     const px = bx + 7*s, py = by - 20*s;
@@ -1468,12 +1481,26 @@ function drawFlying(x, a, i, col){
 }
 
 /* --- the Kairosoft chrome bar --- */
+// Daylight. Auto follows the clock; the four presets hold the hall at one hour of the day,
+// each with its own wash rather than only its own darkness.
+let daylight = 'auto';
+const DAYLIGHT = {
+  morning: {f:0.17, wash:'70,46,22',  hh:'08', mm:'00', icon:'\u{1F304}', name:'Morning'},
+  midday:  {f:0.00, wash:'0,0,0',     hh:'12', mm:'30', icon:'\u2600',    name:'Midday'},
+  evening: {f:0.26, wash:'86,34,14',  hh:'18', mm:'00', icon:'\u{1F307}', name:'Evening'},
+  night:   {f:0.48, wash:'8,14,48',   hh:'22', mm:'00', icon:'\u{1F319}', name:'Night'},
+};
+const DAYKEYS = ['auto', 'morning', 'midday', 'evening', 'night'];
+const nightNow = () => daylight === 'auto' ? Math.max(0, Math.sin(G.time/110)) * 0.42 : DAYLIGHT[daylight].f;
+const nightWash = () => daylight === 'auto' ? '8,14,48' : DAYLIGHT[daylight].wash;
 const DAY = 150;                                     // real seconds in one in-game day
 function gameClock(){
   const d = G.time/DAY, days = Math.floor(d);
   const frac = d - days, mins = Math.floor(frac*24*60);
+  const P = DAYLIGHT[daylight];                      // a held hour shows on the clock too
   return {yr: Math.floor(days/48) + 1, mo: Math.floor(days/4)%12 + 1, dy: days%4 + 1,
-    hh: String(Math.floor(mins/60)).padStart(2,'0'), mm: String(Math.floor(mins%60/10)*10).padStart(2,'0')};
+    hh: P ? P.hh : String(Math.floor(mins/60)).padStart(2,'0'),
+    mm: P ? P.mm : String(Math.floor(mins%60/10)*10).padStart(2,'0')};
 }
 function drawHUD(x){
   const C = gameClock();
@@ -1510,7 +1537,7 @@ function drawScene(dt){
   const x = c.getContext('2d'); x.imageSmoothingEnabled = false;
   ensureAirport();
   if(!cam.set) centreCam();
-  const night = Math.max(0, Math.sin(G.time/110)) * 0.42, col = G.brand.color;
+  const night = nightNow(), col = G.brand.color;
   const RS = runways(), s = TW()/44, T = view === 'term';
   const painting = mode !== 'sel' && mode !== 'del';
   x.fillStyle = T ? '#1d2a3f' : '#2d6b35'; x.fillRect(0, 0, CW, CH);
@@ -1643,7 +1670,7 @@ function drawScene(dt){
   x.font = `bold ${Math.round(10*s)}px monospace`; x.textAlign = 'center';
   floats = floats.filter(f => (f.t += dt) < 1.6);
   if(!T) for(const f of floats){ const ctr = standCtr(f.i); if(!ctr) continue; const [X, Y] = iso(ctr[0], ctr[1], 30*s); x.fillStyle = `rgba(255,227,107,${1-f.t/1.6})`; x.fillText(f.txt, X, Y - f.t*16); }
-  if(night > 0.02){ x.fillStyle = `rgba(8,14,48,${night})`; x.fillRect(0, 0, CW, CH); }
+  if(night > 0.02){ x.fillStyle = `rgba(${nightWash()},${night})`; x.fillRect(0, 0, CW, CH); }
   drawHUD(x);
 }
 
@@ -1845,7 +1872,11 @@ function toolbarHTML(){
       const look = '<button class="btn sm" data-act="zoom">\u{1F50D} ' + ['Close', 'Wide', 'Whole map'][zoom] +
         '</button><button class="btn sm" data-act="turn">\u27F3 Rotate</button>' +
         '<button class="btn sm" data-act="centre">\u2316 Centre</button>';
-      return '<div class="row tools vrow">' + vb('term', '\u{1F3E2} Terminal') + vb('air', '\u{1F6EB} Airside') + '</div>' +
+      const lb = DAYKEYS.map(k => '<button class="btn sm lt ' + (daylight === k ? 'pri' : '') +
+        '" data-act="light" data-arg="' + k + '" title="' + (k === 'auto' ? 'Follow the clock' : DAYLIGHT[k].name) + '">' +
+        (k === 'auto' ? '\u23F1' : DAYLIGHT[k].icon) + '</button>').join('');
+      return '<div class="row tools vrow">' + vb('term', '\u{1F3E2} Terminal') + vb('air', '\u{1F6EB} Airside') +
+        '<span class="glab lgl">Daylight</span>' + lb + '</div>' +
         '<div class="row tools">' + btns + look + '</div>';
     }
     const open = toolGroup === name, cur = g[1].find(z => z[0] === mode);
@@ -2137,6 +2168,7 @@ const ACT = {
   mode: a => { mode = a; sel = null; if(FAC[a]) setView('term'); else if(a === 'stand' || a === 'taxi' || a === 'run') setView('air'); build(); },
   group: a => { toolGroup = toolGroup === a ? "" : a; build(); },
   view: a => { setView(a); sel = null; build(); },
+  light: a => { daylight = a; build(); },
   turn: () => {
     const [gx, gy] = pickF(CW/2, (CH+HUD)/2);                 // keep the middle of the screen put
     turn = (turn + 1) % 4;
