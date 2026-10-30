@@ -756,6 +756,13 @@ function bRoutes(){
 const BUILD = Object.keys(UPG).filter(id => id !== 'gates');
 const BCOL = {tank:'#b7bdc8', crew:'#e0a050', term:'#6fa8dc', eng:'#9aa1ad', saf:'#7ccf7a', forest:'#3f9a45', shop:'#e8645f'};
 const RWY = [500, 750, 1000, 1500, 1750, 2250, 2500, 3000];   // runway metres each aircraft type needs
+const CW = 660, CH = 430, HUD = 30;                           // viewport and the chrome bar on top
+const GW = 60, GH = 60, BS = 12, BW = GW/BS, M_TILE = 250, SS = 3, MIN_RUN = 2;
+const HALL0 = 2, HALL1 = 5, AIR = 6;                          // terminal interior rows, then the airside
+const GEO = 4;                                                // layout generation; older saves get migrated
+const START_LAND = [0];                                       // you start on one 12x12 block and buy outward
+const DIRS = [[1,0],[-1,0],[0,1],[0,-1]];
+let zoom = 0, cam = {x:0, y:0, set:false};
 const ZOOM = [{TW:44, TH:22, WP:11}, {TW:28, TH:14, WP:17}, {TW:16, TH:8, WP:16}];  // close / wide / whole map
 const TZOOM = [{TW:64, TH:32, WP:8}, {TW:40, TH:20, WP:12}, {TW:24, TH:12, WP:16}];  // the same three, indoors
 let view = 'air';                                             // which half of the airport you are looking at
@@ -766,13 +773,6 @@ function setView(v){
   view = v; zoom = zoomOf[v];
   const k = camOf[v]; cam.x = k.x; cam.y = k.y; cam.set = k.set;
 }
-const CW = 660, CH = 430, HUD = 30;                           // viewport and the chrome bar on top
-const GW = 60, GH = 60, BS = 12, BW = GW/BS, M_TILE = 250, SS = 3, MIN_RUN = 2;
-const HALL0 = 2, HALL1 = 5, AIR = 6;                          // terminal interior rows, then the airside
-const GEO = 4;                                                // layout generation; older saves get migrated
-const START_LAND = [0];                                       // you start on one 12x12 block and buy outward
-const DIRS = [[1,0],[-1,0],[0,1],[0,-1]];
-let zoom = 0, cam = {x:0, y:0, set:false};
 const Z = () => (view === "term" ? TZOOM : ZOOM)[zoom];
 const TW = () => Z().TW, TH = () => Z().TH, WP = () => Z().WP;
 const iso = (gx, gy, z = 0) => [cam.x + (gx-gy)*TW()/2, cam.y + (gx+gy)*TH()/2 - z];
@@ -1602,41 +1602,6 @@ function drawScene(dt){
 }
 
 /* --- interaction --- */
-const MODE_GROUPS = [
-  ['', [['sel','\u{1F5B1} Select'], ['del','\u26CF Demolish']]],
-  ['Terminal', [['checkin'],['security'],['vending'],['news'],['cafe'],['restaurant'],['dutyfree'],
-                ['exchange'],['lounge'],['seats'],['play'],['toilet'],['garden'],['info']]],
-  ['Airside', [['stand','\u{1F17F} Stand'], ['taxi','\u{1F6E3} Taxiway'], ['run','\u{1F6EB} Runway']]],
-];
-const modeLabel = m => { const e = MODE_GROUPS.flatMap(g => g[1]).find(z => z[0] === m); return e && e[1] ? e[1] : FAC[m].icon + ' ' + FAC[m].name; };
-const MODES = MODE_GROUPS.flatMap(g => g[1]).map(z => [z[0], modeLabel(z[0])]);
-// On a narrow screen the fourteen terminal tools run to eight rows, so each named group folds
-// behind a header. The header is hidden on desktop, where the groups always show.
-// Only the group belonging to the half you are looking at is listed.
-let toolGroup = '';
-function toolbarHTML(){
-  const vb = (v, l) => '<button class="btn sm ' + (view === v ? 'pri' : '') +
-    '" data-act="view" data-arg="' + v + '">' + l + '</button>';
-  return MODE_GROUPS.map(g => {
-    const name = g[0];
-    if(name === 'Terminal' && view !== 'term') return '';
-    if(name === 'Airside' && view !== 'air') return '';
-    const btns = g[1].map(z => '<button class="btn sm ' + (z[0] === mode ? 'pri' : '') +
-      '" data-act="mode" data-arg="' + z[0] + '">' + modeLabel(z[0]) + '</button>').join('');
-    if(!name){
-      const look = '<button class="btn sm" data-act="zoom">\u{1F50D} ' + ['Close', 'Wide', 'Whole map'][zoom] +
-        '</button><button class="btn sm" data-act="centre">\u2316 Centre</button>';
-      return '<div class="row tools vrow">' + vb('term', '\u{1F3E2} Terminal') + vb('air', '\u{1F6EB} Airside') + '</div>' +
-        '<div class="row tools">' + btns + look + '</div>';
-    }
-    const open = toolGroup === name, cur = g[1].find(z => z[0] === mode);
-    return '<div class="tgroup' + (open ? ' open' : '') + '">' +
-      '<button class="btn sm tgh" data-act="group" data-arg="' + name + '">' +
-      (open ? '\u25BE ' : '\u25B8 ') + name +
-      (cur && !open ? '<span class="tgcur">' + modeLabel(cur[0]) + '</span>' : '') + '</button>' +
-      '<div class="row tools tgbody"><span class="glab">' + name + '</span>' + btns + '</div></div>';
-  }).join('');
-}
 const pick = (px, py) => { const u = (px-cam.x)/(TW()/2), v = (py-cam.y)/(TH()/2); return [Math.floor((u+v)/2), Math.floor((v-u)/2)]; };
 const evPos = (e, c) => {                                     // NaN while the canvas has no size, e.g. a hidden tab
   const r = c.getBoundingClientRect();
@@ -1800,6 +1765,41 @@ function sceneUp(e){
 }
 
 /* --- panels --- */
+const MODE_GROUPS = [
+  ['', [['sel','\u{1F5B1} Select'], ['del','\u26CF Demolish']]],
+  ['Terminal', [['checkin'],['security'],['vending'],['news'],['cafe'],['restaurant'],['dutyfree'],
+                ['exchange'],['lounge'],['seats'],['play'],['toilet'],['garden'],['info']]],
+  ['Airside', [['stand','\u{1F17F} Stand'], ['taxi','\u{1F6E3} Taxiway'], ['run','\u{1F6EB} Runway']]],
+];
+const modeLabel = m => { const e = MODE_GROUPS.flatMap(g => g[1]).find(z => z[0] === m); return e && e[1] ? e[1] : FAC[m].icon + ' ' + FAC[m].name; };
+const MODES = MODE_GROUPS.flatMap(g => g[1]).map(z => [z[0], modeLabel(z[0])]);
+// On a narrow screen the fourteen terminal tools run to eight rows, so each named group folds
+// behind a header. The header is hidden on desktop, where the groups always show.
+// Only the group belonging to the half you are looking at is listed.
+let toolGroup = '';
+function toolbarHTML(){
+  const vb = (v, l) => '<button class="btn sm ' + (view === v ? 'pri' : '') +
+    '" data-act="view" data-arg="' + v + '">' + l + '</button>';
+  return MODE_GROUPS.map(g => {
+    const name = g[0];
+    if(name === 'Terminal' && view !== 'term') return '';
+    if(name === 'Airside' && view !== 'air') return '';
+    const btns = g[1].map(z => '<button class="btn sm ' + (z[0] === mode ? 'pri' : '') +
+      '" data-act="mode" data-arg="' + z[0] + '">' + modeLabel(z[0]) + '</button>').join('');
+    if(!name){
+      const look = '<button class="btn sm" data-act="zoom">\u{1F50D} ' + ['Close', 'Wide', 'Whole map'][zoom] +
+        '</button><button class="btn sm" data-act="centre">\u2316 Centre</button>';
+      return '<div class="row tools vrow">' + vb('term', '\u{1F3E2} Terminal') + vb('air', '\u{1F6EB} Airside') + '</div>' +
+        '<div class="row tools">' + btns + look + '</div>';
+    }
+    const open = toolGroup === name, cur = g[1].find(z => z[0] === mode);
+    return '<div class="tgroup' + (open ? ' open' : '') + '">' +
+      '<button class="btn sm tgh" data-act="group" data-arg="' + name + '">' +
+      (open ? '\u25BE ' : '\u25B8 ') + name +
+      (cur && !open ? '<span class="tgcur">' + modeLabel(cur[0]) + '</span>' : '') + '</button>' +
+      '<div class="row tools tgbody"><span class="glab">' + name + '</span>' + btns + '</div></div>';
+  }).join('');
+}
 function fitsRunway(m = runwayLen()){ return TYPES.filter((t, i) => RWY[i] <= m).pop(); }
 function rwyList(){
   const RS = runways().slice().sort((a, b) => b.len - a.len);
