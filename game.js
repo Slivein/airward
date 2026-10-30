@@ -226,6 +226,7 @@ function newGame(brand, prev){
     shares: prev ? prev.shares : 0, ipos: prev ? prev.ipos : 0,
     fuel:400, fuelMult:1, fuelHist:[1], creditMult:1, debt:0, totalCO2:0, totalOffset:0,
     tok: prev ? prev.tok||0 : 0, ach: prev ? prev.ach||{} : {}, lic: prev ? prev.lic||0 : 0,
+    floors:1,
     land: prev && prev.land ? prev.land : Object.fromEntries(START_LAND.map(b => [b, 1])),
     ticket:1, upg:{}, routes:{}, fleet:[], nextId:101, time:0, evt:{}, nextEvt:90, taxT:20,
     mAcc:0, xAcc:0, charterCD:0, flights:0, rate:0, lfEma:0.6, lfTerm:1, acc:0, log:[], lastSave:Date.now(),
@@ -550,6 +551,7 @@ function load(){
     G = JSON.parse(s); if(!G || G.v !== 1) return false;
     G.tok = G.tok || 0; G.ach = G.ach || {};
     if(typeof G.lfTerm !== 'number') G.lfTerm = 1;
+    G.floors = Math.min(3, Math.max(1, G.floors || 1));
     if(!G.land || !Object.keys(G.land).length){ G.land = {}; for(const b of START_LAND) G.land[b] = 1; }
     return true;
   }catch(e){ return false; }
@@ -758,9 +760,9 @@ const BCOL = {tank:'#b7bdc8', crew:'#e0a050', term:'#6fa8dc', eng:'#9aa1ad', saf
 const RWY = [500, 750, 1000, 1500, 1750, 2250, 2500, 3000];   // runway metres each aircraft type needs
 const CW = 660, CH = 430, HUD = 30;                           // viewport and the chrome bar on top
 const GW = 60, GH = 60, BS = 12, BW = GW/BS, M_TILE = 250, SS = 3, MIN_RUN = 2;
-const HALL0 = 2, HALL1 = 5, AIR = 6;                          // terminal interior rows, then the airside
-const GEO = 4;                                                // layout generation; older saves get migrated
-const START_LAND = [0];                                       // you start on one 12x12 block and buy outward
+const HALL0 = 2, HALL1 = 11, AIR = 12;                        // the hall fills block row 1; the airside starts below
+const GEO = 5;                                                // layout generation; older saves get migrated
+const START_LAND = [0, BW];                                   // the hall block and the airside block under it
 const DIRS = [[1,0],[-1,0],[0,1],[0,-1]];
 let zoom = 0, cam = {x:0, y:0, set:false};
 const ZOOM = [{TW:44, TH:22, WP:11}, {TW:28, TH:14, WP:17}, {TW:16, TH:8, WP:16}];  // close / wide / whole map
@@ -990,22 +992,41 @@ const FAC = {
 const AMEN = ['cafe','dutyfree','seats','toilet','vending','news','exchange','restaurant','lounge','play'];
 // True when a passenger stands within reach of a passive facility of this kind.
 function nearPassive(p, kind){
-  for(const e of facList(kind)) if(Math.hypot(e.gx+.5-p.x, e.gy+.5-p.y) <= FAC[kind].aura) return true;
+  for(const e of facList(kind, p.fl)) if(Math.hypot(e.gx+.5-p.x, e.gy+.5-p.y) <= FAC[kind].aura) return true;
   return false;
 }
-const facAt = (gx, gy) => G.fac[tkey(gx, gy)];
-const facList = k => Object.keys(G.fac).filter(j => G.fac[j].k === k).map(j => ({key:+j, f:G.fac[j], gx:(+j/100|0), gy:(+j)%100}));
-const facCount = k => facList(k).length;
+// Floors. A facility's key carries its storey, so floor 1 is keys 0..5999, floor 2 is 10000 up.
+const FLOORS = 3, FLOOR_COST = [0, 180e3, 900e3], FLOOR_TOK = [0, 3, 8];
+let floor = 0;                                                // the storey you are looking at, 0-based
+const fkey = (fl, gx, gy) => fl*10000 + gx*100 + gy;
+const unfkey = k => [(k/10000)|0, ((k%10000)/100)|0, k%100];
+const nFloors = () => Math.min(FLOORS, Math.max(1, G.floors || 1));
+const facAt = (gx, gy, fl = floor) => G.fac[fkey(fl, gx, gy)];
+const facList = (k, fl = floor) => Object.keys(G.fac).map(Number).filter(j => ((j/10000)|0) === fl && G.fac[j].k === k)
+  .map(j => { const [, gx, gy] = unfkey(j); return {key:j, f:G.fac[j], gx, gy}; });
+const facCount = (k, fl = floor) => facList(k, fl).length;
+const facTotal = k => Object.values(G.fac).filter(f => f.k === k).length;
+function buyFloor(){
+  const n = nFloors();
+  if(n >= FLOORS) return false;
+  const cash = FLOOR_COST[n], tok = FLOOR_TOK[n];
+  if(G.cash < cash){ toast('Another floor costs ' + money(cash) + '.'); return false; }
+  if(G.tok < tok){ toast('Another floor also needs ' + tok + ' flight tokens — you have ' + G.tok + '.'); return false; }
+  G.cash -= cash; G.tok -= tok; G.floors = n + 1; floor = n;
+  logMsg('\u{1F3E2} Terminal floor ' + (n+1) + 'F opened.');
+  toast('\u{1F3E2} Floor ' + (n+1) + 'F is open!');
+  return true;
+}
 const ENTRY = () => [hallW()-1.5, HALL0 + 0.5];
 
 function seedHall(){
   G.fac = {};
-  G.fac[tkey(7, 3)] = {k:'checkin', q:[]};                    // passengers come in at the right and work left
-  G.fac[tkey(3, 4)] = {k:'security', q:[]};
+  G.fac[fkey(0, 7, 3)] = {k:'checkin', q:[]};                 // passengers come in at the right and work left
+  G.fac[fkey(0, 3, 4)] = {k:'security', q:[]};
 }
 const freeHallTile = () => {
   for(let gy = HALL0; gy <= HALL1; gy++) for(let gx = 0; gx < hallW(); gx++)
-    if(!G.fac[tkey(gx, gy)]) return [gx, gy];
+    if(!G.fac[fkey(0, gx, gy)]) return [gx, gy];
   return null;
 };
 function ensureHall(){
@@ -1024,9 +1045,12 @@ const NAMES = ['Ana','Ben','Cleo','Dara','Eli','Finn','Gio','Hana','Ira','Jo','K
 const PAX_MAX = 70, SESS = Math.random();
 const paxFee = f => Math.round(FAC[f].fee * (1 + G.level*0.16) * revMult());
 function spawnPax(n){
-  for(let i = 0; i < n && pax.length < PAX_MAX; i++){
+  const open = [];                                            // a storey can only take people if it can check them in
+  for(let f = 0; f < nFloors(); f++) if(facCount('checkin', f)) open.push(f);
+  for(let i = 0; i < n && pax.length < PAX_MAX*nFloors(); i++){
     const [ex, ey] = ENTRY();
-    pax.push({s:SESS, x:ex, y:ey + (Math.random()-0.5)*1.2, step:'checkin', at:null, slot:0, t:0,
+    const fl = open.length ? open[(Math.random()*open.length)|0] : 0;
+    pax.push({s:SESS, fl, x:ex, y:ey + (Math.random()-0.5)*1.2, step:'checkin', at:null, slot:0, t:0,
       mood:62 + Math.random()*22, c1:PCOL[(Math.random()*PCOL.length)|0],
       sk:SKIN[(Math.random()*SKIN.length)|0], hr:HAIR[(Math.random()*HAIR.length)|0],
       em:null, et:0, spent:0, visits:0, flip:true, bag:Math.random() < .55, bob:Math.random()*6,
@@ -1036,7 +1060,7 @@ function spawnPax(n){
 function paxArrive(seats){ spawnPax(clamp(Math.round(seats/28), 1, 6)); }
 function emote(p, e){ p.em = e; p.et = 2.2; }
 function pickFac(p, kind){
-  const list = facList(kind);
+  const list = facList(kind, p.fl);
   if(!list.length) return null;
   let best = null;
   for(const e of list){
@@ -1056,7 +1080,7 @@ function paxStep(dt){
     const p = pax[i];
     if(p.et > 0) p.et -= dt;
     p.bob += dt*9;
-    if(facCount('garden') && nearPassive(p, 'garden')) p.mood = Math.min(100, p.mood + dt*FAC.garden.rate);
+    if(facCount('garden', p.fl) && nearPassive(p, 'garden')) p.mood = Math.min(100, p.mood + dt*FAC.garden.rate);
     if(p.step === 'gone'){ pax.splice(i, 1); continue; }
     if(p.step === 'leave' || p.step === 'board'){                       // walk out of the hall
       const ty = p.step === 'board' ? HALL1 + 1.7 : HALL0 - 1.4;
@@ -1068,7 +1092,7 @@ function paxStep(dt){
     if(!p.at){                                                          // decide where to go next
       let kind = p.step === 'checkin' || p.step === 'security' ? p.step : null;
       if(p.step === 'amenity'){
-        const open = AMEN.filter(k => facCount(k));
+        const open = AMEN.filter(k => facCount(k, p.fl));
         if(!open.length || p.visits >= (p.mood > 70 ? 3 : 2)){ p.step = 'board'; termHit(); continue; }
         kind = open[(Math.random()*open.length)|0];
       }
@@ -1088,7 +1112,7 @@ function paxStep(dt){
     const dx = tx - p.x, dy = ty - p.y, d = Math.hypot(dx, dy);
     if(d > 0.06){ const v = Math.min(dt*1.3, d); p.x += dx/d*v; p.y += dy/d*v; p.flip = dx < 0; continue; }
     if(p.slot > 0){
-      const drain = facCount('info') && nearPassive(p, 'info') ? 0.6 : 1.7;
+      const drain = facCount('info', p.fl) && nearPassive(p, 'info') ? 0.6 : 1.7;
       p.mood = Math.max(0, p.mood - dt*drain);
       if(p.mood <= 0){                                                  // out of patience: abandons the queue
         leaveFac(p); emote(p, 'angry'); p.step = 'leave';
@@ -1143,6 +1167,12 @@ function migrateGeo(){
     G.stands = G.stands.map(s => ({x:s.x, y:s.y + shift}));
     G.geo = 2; invalidate();
   }
+  if((G.geo||0) === 4){                                 // the hall got deeper: push the whole airside down
+    const shift = 6, t = {};
+    for(const k in G.tiles){ const [gx, gy] = unkey(+k); t[tkey(gx, Math.min(GH-1, gy + shift))] = G.tiles[k]; }
+    G.tiles = t;
+    G.stands = G.stands.map(s => ({x:s.x, y:Math.min(GH-SS, s.y + shift)}));
+  }
   if((G.geo||0) >= GEO) return;
   const old = G.land, own = (gx, gy) => { if(gx >= 0 && gx < GW && gy >= 0 && gy < GH) G.land[bIdx(gx, gy)] = 1; };
   G.land = {0:1};                                       // block size changed: re-derive ownership from the map
@@ -1155,11 +1185,11 @@ function migrateGeo(){
   for(const j in G.fac){ const [gx, gy] = unkey(+j); own(gx, gy); }
   for(const p of Object.values(G.layout)) own(p+1, 0);
   landC = undefined;
-  for(const j of Object.keys(G.fac)){                   // the hall is shallower now: rescue anything outside it
+  for(const j of Object.keys(G.fac)){                   // rescue anything that fell outside the hall
     const [gx, gy] = unkey(+j);
     if(gy >= HALL0 && gy <= HALL1 && open(gx, gy)) continue;
     const spot = freeHallTile();
-    if(spot) G.fac[tkey(spot[0], spot[1])] = G.fac[j];
+    if(spot) G.fac[fkey(0, spot[0], spot[1])] = G.fac[j];
     else G.cash += FAC[G.fac[j].k].cost*0.5;
     delete G.fac[j];
   }
@@ -1404,7 +1434,7 @@ function drawFacility(x, gx, gy, f, night){
     x.fillStyle = '#10204a'; x.font = 'bold ' + Math.round(8*s) + 'px monospace';
     x.fillText(f.q.length, X+14.5*s, Y-2*s);
   }
-  if(sel && sel.fac === tkey(gx, gy)){ x.lineWidth = 2; tile(x, gx, gy, 1, 1, null, '#ffe36b'); }
+  if(sel && sel.fac === fkey(floor, gx, gy)){ x.lineWidth = 2; tile(x, gx, gy, 1, 1, null, '#ffe36b'); }
 }
 
 function drawPlane(x, wx, wy, t, col, rot0, z){
@@ -1643,8 +1673,12 @@ function drawScene(dt){
         x.fillStyle = night > .3 ? '#ffe9a0' : '#5b8fd4'; x.fillRect(EX-10*s, EY-16*s, 26*s, 14*s);
       }
     }
-    for(const j in G.fac){ const [gx, gy] = unkey(+j); items.push({d:depth(gx, gy), fn:() => drawFacility(x, gx, gy, G.fac[j], night)}); }
-    for(const p of pax) items.push({d:depth(p.x, p.y) + 0.4, fn:() => drawPerson(x, p.x, p.y, p, night)});
+    for(const j in G.fac){                               // only the storey you are looking at
+      const [fl, gx, gy] = unfkey(+j);
+      if(fl !== floor) continue;
+      items.push({d:depth(gx, gy), fn:() => drawFacility(x, gx, gy, G.fac[j], night)});
+    }
+    for(const p of pax) if(p.fl === floor) items.push({d:depth(p.x, p.y) + 0.4, fn:() => drawPerson(x, p.x, p.y, p, night)});
   } else {
     for(let i = 0; i < G.stands.length; i++){
       const a = G.fleet[i], ctr = standCtr(i);
@@ -1699,14 +1733,14 @@ function applyBuild(gx, gy){
     if(facAt(gx, gy)) return toast('Something is already there.');
     const D = FAC[mode];
     if(G.cash < D.cost) return toast(`${D.name} costs ${money(D.cost)}.`);
-    G.cash -= D.cost; G.fac[tkey(gx, gy)] = {k:mode, q:[]};
+    G.cash -= D.cost; G.fac[fkey(floor, gx, gy)] = {k:mode, q:[]};
     return;
   }
   if(mode === 'del'){
     if(inHall(gx, gy) && facAt(gx, gy)){
       const f = facAt(gx, gy);
       for(const p of pax) if(p.at && p.at.key === tkey(gx, gy)) p.at = null;
-      G.cash += FAC[f.k].cost*0.5; delete G.fac[tkey(gx, gy)];
+      G.cash += FAC[f.k].cost*0.5; delete G.fac[fkey(floor, gx, gy)];
       return;
     }
     if(!inAir(gx, gy)) return;
@@ -1753,7 +1787,7 @@ function sceneClick(e){
     if(bld && bldH(G.upg[bld]) >= dy-3){ sel = {bld}; break; }
     if(dy === 0) sel = bld ? {bld} : {plot:p};
   }
-  if(!sel && inHall(gx, gy) && facAt(gx, gy)) sel = {fac:tkey(gx, gy)};
+  if(!sel && inHall(gx, gy) && facAt(gx, gy)) sel = {fac:fkey(floor, gx, gy)};
   if(!sel && !open(gx, gy)){
     const b = bIdx(gx, gy);
     if(buyableLand().has(b)) sel = {land:b};
@@ -1875,7 +1909,16 @@ function toolbarHTML(){
       const lb = DAYKEYS.map(k => '<button class="btn sm lt ' + (daylight === k ? 'pri' : '') +
         '" data-act="light" data-arg="' + k + '" title="' + (k === 'auto' ? 'Follow the clock' : DAYLIGHT[k].name) + '">' +
         (k === 'auto' ? '\u23F1' : DAYLIGHT[k].icon) + '</button>').join('');
-      return '<div class="row tools vrow">' + vb('term', '\u{1F3E2} Terminal') + vb('air', '\u{1F6EB} Airside') +
+      let fb = '';
+      if(view === 'term'){
+        for(let f = 0; f < nFloors(); f++) fb += '<button class="btn sm lt ' + (floor === f ? 'pri' : '') +
+          '" data-act="floor" data-arg="' + f + '" title="Floor ' + (f+1) + '">' + (f+1) + 'F</button>';
+        if(nFloors() < FLOORS) fb += '<button class="btn sm lt" data-act="addfloor" data-cost="' + FLOOR_COST[nFloors()] +
+          '" data-tok="' + FLOOR_TOK[nFloors()] + '" title="Open floor ' + (nFloors()+1) + ' for ' +
+          money(FLOOR_COST[nFloors()]) + ' and ' + FLOOR_TOK[nFloors()] + ' tokens">+</button>';
+        fb = '<span class="glab lgl">Floor</span>' + fb;
+      }
+      return '<div class="row tools vrow">' + vb('term', '\u{1F3E2} Terminal') + vb('air', '\u{1F6EB} Airside') + fb +
         '<span class="glab lgl">Daylight</span>' + lb + '</div>' +
         '<div class="row tools">' + btns + look + '</div>';
     }
@@ -1894,13 +1937,14 @@ function rwyList(){
   return RS.map(R => { const f = fitsRunway(R.len*M_TILE); return `<span class="tag">${R.len*M_TILE} m · ${f ? f.name : 'too short'}</span>`; }).join(' ');
 }
 function hallStatus(){
-  const ci = facCount('checkin'), se = facCount('security');
+  const ci = facTotal('checkin'), se = facTotal('security');
   const warn = [];
   if(!ci) warn.push('no check-in desk');
   if(!se) warn.push('no security lane');
-  const am = AMEN.filter(k => facCount(k)).length;
+  const am = AMEN.filter(k => facTotal(k)).length;
   const sv = Math.round(G.lfTerm*100), lost = G.paxLost || 0;
-  return `<p>Terminal: <b>${ci}</b> check-in · <b>${se}</b> security · <b>${am}</b>/${AMEN.length} amenity kinds<br>
+  const fl = nFloors() > 1 ? ` across <b>${nFloors()}</b> floors` : '';
+  return `<p>Terminal${fl}: <b>${ci}</b> check-in · <b>${se}</b> security · <b>${am}</b>/${AMEN.length} amenity kinds<br>
     <span class="muted">In the hall now: <b>${pax.length}</b> passengers, mood <b>${Math.round(paxHappy())}%</b>${G.paxRev ? ` · earned <b class="good">${money(G.paxRev)}</b>` : ''}</span><br>
     <span class="${sv > 85 ? 'good' : sv > 60 ? 'muted' : 'bad'}">Service: <b>${sv}%</b> of passengers board${lost ? ` · <b>${fmt(lost)}</b> walked out` : ''}</span>
     <span class="muted">— your flights fly at <b>×${termFactor().toFixed(2)}</b> of their load factor.</span></p>
@@ -2169,6 +2213,8 @@ const ACT = {
   group: a => { toolGroup = toolGroup === a ? "" : a; build(); },
   view: a => { setView(a); sel = null; build(); },
   light: a => { daylight = a; build(); },
+  floor: a => { floor = clamp(+a, 0, nFloors()-1); sel = null; build(); },
+  addfloor: () => { if(buyFloor()){ setView('term'); sel = null; build(); } },
   turn: () => {
     const [gx, gy] = pickF(CW/2, (CH+HUD)/2);                 // keep the middle of the screen put
     turn = (turn + 1) % 4;
