@@ -1246,6 +1246,19 @@ function autoExtendRunway(){
   }
   return false;
 }
+// The tiles we would have to pave to join this footprint to the taxi network, shortest route first.
+// Only the long sides are offered: a link off a runway's end would block the extension it exists to serve.
+function linkTo(from, x0, y0, w, d){
+  let best = null;
+  for(let gx = x0; gx < x0+w; gx++) for(const gy of [y0-1, y0+d]){
+    if(!from.has(tkey(gx, gy))) continue;
+    const p = [];
+    for(let k = tkey(gx, gy); k !== -1; k = from.get(k)) if(!G.tiles[k]) p.push(k);
+    if(p.some(k => { const [a, b] = unkey(k); return a >= x0 && a < x0+w && b >= y0 && b < y0+d; })) continue;
+    if(!best || p.length < best.length) best = p;
+  }
+  return best;
+}
 // Flood the empty land a taxiway could still reach from the network, so a new strip knows whether it can be linked.
 function taxiReach(){
   const from = new Map(), q = [];
@@ -1275,13 +1288,7 @@ function autoAddRunway(){
     if(RS.some(R => Math.abs(R.gy - gy) < 2)) continue;              // keep strips apart
     for(let x0 = 0; x0 + want <= GW; x0++){
       if(!clear(x0, gy)) continue;
-      let link = null;
-      for(let gx = x0; gx < x0+want && !link; gx++) for(const y of [gy-1, gy+1]){
-        if(!from.has(tkey(gx, y))) continue;
-        const p = [];
-        for(let k = tkey(gx, y); k !== -1; k = from.get(k)) if(!G.tiles[k]) p.push(k);
-        if(p.every(k => k%100 !== gy)) { link = p; break; }           // a route through our own row would be paved over
-      }
+      const link = linkTo(from, x0, gy, want, 1);
       if(!link) continue;
       if(G.cash < want*runCost() + link.length*taxiCost() + 5000) return false;
       for(let gx = x0; gx < x0+want; gx++){ G.cash -= runCost(); G.tiles[tkey(gx, gy)] = 'run'; }
@@ -1293,17 +1300,30 @@ function autoAddRunway(){
   }
   return false;
 }
+// A stand dropped across the last corridor seals the airport in and nothing can ever be built again, so take
+// the first spot that cuts nothing off. A spot need not already touch the network — we lay the taxiway out to it.
 function autoPlaceStand(){
+  const from = taxiReach(), open = from.size;
+  let walled = null;
   for(let gy = AIR; gy + SS <= GH; gy++) for(let gx = 0; gx + SS <= GW; gx++){
-    let clear = true, linked = false;
+    let clear = true;
     for(let a = 0; a < SS && clear; a++) for(let b = 0; b < SS; b++)
       if(tType(gx+a, gy+b) || standIdxAt(gx+a, gy+b) >= 0){ clear = false; break; }
     if(!clear) continue;
-    for(let a = 0; a < SS && !linked; a++) for(const [cx, cy] of [[gx+a, gy-1], [gx+a, gy+SS], [gx-1, gy+a], [gx+SS, gy+a]])
-      if(inAir(cx, cy) && tType(cx, cy) === 'taxi'){ linked = true; break; }
-    if(linked){ G.stands.push({x:gx, y:gy}); invalidate(); return true; }
+    const link = linkTo(from, gx, gy, SS, SS);
+    if(!link || G.cash < link.length*taxiCost()) continue;
+    G.stands.push({x:gx, y:gy});
+    if(taxiReach().size >= open - SS*SS){                              // it only took its own footprint
+      for(const k of link){ G.cash -= taxiCost(); G.tiles[k] = 'taxi'; }
+      invalidate(); return true;
+    }
+    G.stands.pop();
+    if(!walled) walled = {x:gx, y:gy, link};
   }
-  return false;
+  if(!walled) return false;                                            // nowhere left: a sealed apron is still better than none
+  G.stands.push({x:walled.x, y:walled.y});
+  for(const k of walled.link){ G.cash -= taxiCost(); G.tiles[k] = 'taxi'; }
+  invalidate(); return true;
 }
 
 /* --- drawing helpers --- */
