@@ -268,6 +268,13 @@ th{color:var(--muted);font-weight:600;font-size:14px}
 .dbody #map{height:260px}
 /* with a drawer open the scene is narrow, so the tools get the hint text back */
 .shell.panel .dnote{display:none}
+/* Between a phone and a wide desktop, side by side leaves the scene 430px and a column of dead space,
+   so the drawer goes under it and both get the full width. */
+@media(min-width:761px) and (max-width:1060px){
+  .shell{flex-wrap:wrap}
+  .shell #drawer{width:auto;flex:1 1 100%;position:static;max-height:none}
+  .shell.panel .dnote{display:block}
+}
 
 /* ---- departures board ---- */
 .board .chip{position:relative;padding-left:21px}
