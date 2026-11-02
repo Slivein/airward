@@ -475,10 +475,9 @@ function openBestRoute(maxRange){
 function autoExpandStep(){
   if(!autoOn('expand')) return;
   const r = 1 + G.auto.expand.reserve;
-  if(G.fleet.length >= gates()){
-    if(G.cash >= gateCost()*r*2) buyUpgrade('gates');
-    return;
-  }
+  // A full apron stops us buying aeroplanes, not building: the runway work below still has to happen.
+  const full = G.fleet.length >= gates();
+  if(full && G.cash >= gateCost()*r*2 && buyUpgrade('gates')) return;
   // keep the fuel farm big enough for the best aircraft we can afford
   const top0 = TYPES.filter(t => G.level>=t.lvl && G.cash >= t.cost*r).pop();
   if(top0 && tankCap() < 2*top0.burn*Math.min(top0.range,5000)*2*burnMult()){
@@ -489,7 +488,9 @@ function autoExpandStep(){
   const held = G.fleet.filter(a => a.state === 'hold').length;
   if(held >= 2 && held >= G.fleet.length*0.25 && G.cash >= runCost()*r*6 && autoAddRunway()) return;
   const biggest = TYPES.reduce((m, t, i) => G.level >= t.lvl && G.cash >= t.cost*r ? i : m, -1);
-  if(biggest >= 0 && RWY[biggest] > runwayLen() && G.cash >= runCost()*r*3 && autoExtendRunway()) return;
+  if(biggest >= 0 && RWY[biggest] > runwayLen() && G.cash >= runCost()*r*3 &&
+    (autoExtendRunway() || autoAddRunway())) return;
+  if(full) return;
   let pick=null;
   TYPES.forEach((t,i) => {
     if(G.level < t.lvl || G.cash < t.cost*r) return;
@@ -810,6 +811,7 @@ const nBlocks = () => Object.keys(G.land || {}).length;
 const licAt = i => LIC[clamp(i|0, 0, LIC.length-1)];
 const licLen = () => licAt(G.lic || 0).m;                     // the longest runway your licence allows
 const licTiles = () => Math.floor(licLen()/M_TILE);
+const MAXT = Math.floor(LIC[LIC.length-1].m/M_TILE);          // the longest strip any licence will ever allow
 const nextLic = () => (G.lic || 0) + 1 < LIC.length ? LIC[(G.lic || 0) + 1] : null;
 function buyLicence(){
   const L = nextLic();
@@ -893,6 +895,9 @@ function runways(){
   return rwCache = list;
 }
 const longestRunway = () => runways().reduce((m, R) => !m || R.len > m.len ? R : m, null);
+// A taxiway in a runway's row caps how far that runway can ever grow, so leave every strip its full licence of room.
+// Any window of MAXT tiles that still covers the strip is a span it could end up occupying, so hold that much.
+const rwyReserve = (gx, gy) => runways().some(R => R.gy === gy && gx > R.x1 - MAXT && gx < R.x0 + MAXT);
 const runwayLen = () => { const r = longestRunway(); return r ? r.len*M_TILE : 0; };
 /* Ground moves run on their own clock so a short hop does not taxi at a sprint:
    the taxi takes as long as the route is, and the roll is the same every time. */
@@ -1230,37 +1235,57 @@ function reseedAirport(confirmFn){
   logMsg(`\u{1F3D7}️ Airport rebuilt on the standard layout for ${money(fee)}.`);
   return true;
 }
+// Try every strip, longest first: the longest one can be walled in by a taxiway while a shorter one still has room.
 function autoExtendRunway(){
-  const R = longestRunway();
-  if(!R || R.len >= licTiles()) return false;
-  for(const gx of [R.x0-1, R.x1+1]) if(inAir(gx, R.gy) && !tType(gx, R.gy) && standIdxAt(gx, R.gy) < 0){
-    const c = runCost(); if(G.cash < c) return false;
-    G.cash -= c; G.tiles[tkey(gx, R.gy)] = 'run'; invalidate(); return true;
+  for(const R of runways().slice().sort((a, b) => b.len - a.len)){
+    if(R.len >= licTiles()) continue;
+    for(const gx of [R.x0-1, R.x1+1]) if(inAir(gx, R.gy) && !tType(gx, R.gy) && standIdxAt(gx, R.gy) < 0){
+      const c = runCost(); if(G.cash < c) return false;
+      G.cash -= c; G.tiles[tkey(gx, R.gy)] = 'run'; invalidate(); return true;
+    }
   }
   return false;
 }
+// Flood the empty land a taxiway could still reach from the network, so a new strip knows whether it can be linked.
+function taxiReach(){
+  const from = new Map(), q = [];
+  const push = (gx, gy, p) => {
+    const k = tkey(gx, gy);
+    if(from.has(k) || !inAir(gx, gy) || standIdxAt(gx, gy) >= 0) return;
+    const t = tType(gx, gy);
+    if(t === 'run' || (!t && rwyReserve(gx, gy))) return;      // taxiways cannot cross a strip or steal its room
+    from.set(k, p); q.push([gx, gy]);
+  };
+  for(const k in G.tiles) if(G.tiles[k] === 'taxi'){ from.set(+k, -1); q.push(unkey(+k)); }
+  for(let i = 0; i < q.length; i++){
+    const [gx, gy] = q[i], k = tkey(gx, gy);
+    push(gx+1, gy, k); push(gx-1, gy, k); push(gx, gy+1, k); push(gx, gy-1, k);
+  }
+  return from;
+}
 // One runway launches one aircraft at a time, so a queue means another strip, not another aeroplane.
-// Pick the spur column first, then hang the strip off whichever side of it is clear.
+// Lay the strip at licence length, then let the flood above find it a route back to the taxi network.
 function autoAddRunway(){
-  const want = clamp(licTiles(), MIN_RUN, 14), RS = runways();
+  const want = clamp(licTiles(), MIN_RUN, MAXT), RS = runways(), from = taxiReach();
   const free = (gx, gy) => inAir(gx, gy) && !tType(gx, gy) && standIdxAt(gx, gy) < 0;
   const clear = (x0, gy) => { for(let gx = x0; gx < x0+want; gx++) if(!free(gx, gy)) return false; return true; };
-  for(let gy = AIR + 2; gy < GH; gy++){
+  // A strip laid between the stands and their lane walls the apron in, so stay clear of it and leave a lane row.
+  const apron = G.stands.reduce((m, s) => Math.max(m, s.y + SS + 1), AIR + 2);
+  for(let gy = apron; gy < GH; gy++){
     if(RS.some(R => Math.abs(R.gy - gy) < 2)) continue;              // keep strips apart
-    for(let cx = 0; cx < GW; cx++){
-      if(!free(cx, gy)) continue;
-      let hit = -1;                                                  // nearest taxiway straight up this column
-      for(let y = gy - 1; y >= AIR; y--){
-        if(tType(cx, y) === 'taxi'){ hit = y; break; }
-        if(!free(cx, y)) break;
+    for(let x0 = 0; x0 + want <= GW; x0++){
+      if(!clear(x0, gy)) continue;
+      let link = null;
+      for(let gx = x0; gx < x0+want && !link; gx++) for(const y of [gy-1, gy+1]){
+        if(!from.has(tkey(gx, y))) continue;
+        const p = [];
+        for(let k = tkey(gx, y); k !== -1; k = from.get(k)) if(!G.tiles[k]) p.push(k);
+        if(p.every(k => k%100 !== gy)) { link = p; break; }           // a route through our own row would be paved over
       }
-      if(hit < 0) continue;
-      const x0 = clear(cx+1, gy) ? cx+1 : (cx-want >= 0 && clear(cx-want, gy) ? cx-want : -1);
-      if(x0 < 0) continue;
-      const taxis = 1 + (gy - hit - 1);
-      if(G.cash < want*runCost() + taxis*taxiCost() + 5000) return false;
+      if(!link) continue;
+      if(G.cash < want*runCost() + link.length*taxiCost() + 5000) return false;
       for(let gx = x0; gx < x0+want; gx++){ G.cash -= runCost(); G.tiles[tkey(gx, gy)] = 'run'; }
-      for(let y = hit + 1; y <= gy; y++){ G.cash -= taxiCost(); G.tiles[tkey(cx, y)] = 'taxi'; }
+      for(const k of link){ G.cash -= taxiCost(); G.tiles[k] = 'taxi'; }
       invalidate();
       logMsg('\u{1F6EB} Network planning opened another runway: ' + want*M_TILE + ' m.');
       return true;
