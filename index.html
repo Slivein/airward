@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SkyIdle — Airline Tycoon</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -14,15 +16,41 @@
       <div><b data-bind="bname"></b><small data-bind="btag"></small></div>
     </div>
     <div class="stats">
-      <div class="stat"><label>Cash</label><b data-bind="cash"></b><small data-bind="rate"></small></div>
-      <div class="stat"><label>Fuel</label><b data-bind="fuel"></b><div class="bar"><i data-w="fuelpct"></i></div></div>
-      <div class="stat"><label>CO₂ debt</label><b data-bind="debt"></b><div class="bar"><i class="bad" data-w="debtpct"></i></div></div>
-      <div class="stat"><label>Level <span data-bind="level"></span></label><b data-bind="xp"></b><div class="bar"><i class="good" data-w="xppct"></i></div></div>
-      <div class="stat"><label>Flight tokens</label><b data-bind="tok"></b><small data-bind="toknote"></small></div>
+      <div class="stat">
+        <svg class="si" viewBox="0 0 24 24" fill="none" stroke="#45d69a" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M12 2v20M17 6H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+        <span class="sv"><label>Cash</label><b data-bind="cash"></b></span>
+        <small class="good" data-bind="rate"></small>
+      </div>
+      <div class="stat">
+        <svg class="si" viewBox="0 0 24 24" fill="none" stroke="#5fb7f2" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3s5.5 5.2 5.5 9.2A5.5 5.5 0 0112 18a5.5 5.5 0 01-5.5-5.8C6.5 8.2 12 3 12 3z"/></svg>
+        <span class="sv"><label>Fuel</label><b data-bind="fuel"></b><div class="bar"><i data-w="fuelpct"></i></div></span>
+      </div>
+      <div class="stat">
+        <svg class="si" viewBox="0 0 24 24" fill="none" stroke="#8292b4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 4C11 4 5 8 5 15v5M5 15c0-5 5-7 11-7"/></svg>
+        <span class="sv"><label>CO₂ debt</label><b data-bind="debt"></b><div class="bar"><i class="bad" data-w="debtpct"></i></div></span>
+      </div>
+      <div class="stat">
+        <span class="ring">
+          <svg viewBox="0 0 36 36" aria-hidden="true">
+            <circle cx="18" cy="18" r="15"></circle>
+            <circle class="fg" cx="18" cy="18" r="15" data-dash="xppct" stroke-dasharray="0 94.25" transform="rotate(-90 18 18)"></circle>
+          </svg>
+          <i data-bind="level"></i>
+        </span>
+        <span class="sv"><label>Level</label><b class="xp" data-bind="xp"></b></span>
+      </div>
+      <div class="stat">
+        <svg class="si" viewBox="0 0 24 24" fill="none" stroke="#f3b340" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M3 8a2 2 0 002-2h14a2 2 0 002 2v2a2 2 0 000 4v2a2 2 0 00-2 2H5a2 2 0 00-2-2v-2a2 2 0 000-4z"/><path d="M12 7v10" stroke-dasharray="2 3"/></svg>
+        <span class="sv"><label>Flight tokens</label><b data-bind="tok"></b></span>
+        <small data-bind="toknote"></small>
+      </div>
     </div>
+    <div id="speed" class="seg"></div>
   </header>
-  <nav id="nav"></nav>
-  <main id="view"></main>
+  <div class="shell">
+    <nav id="nav"></nav>
+    <main id="view"></main>
+  </div>
 </div>
 <div id="modal" hidden></div>
 <div id="toasts"></div>

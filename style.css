@@ -1,30 +1,56 @@
 :root{
-  --bg:#0e1626;--panel:#16223a;--panel2:#1d2c4a;--line:#34486e;--text:#f4f7fc;--muted:#b4c2dc;
-  --brand:#3aa0ff;--good:#4be3a3;--bad:#ff7b7b;--warn:#ffd166;--r:14px;
+  --bg:#0a0f1c;--panel:#121a2b;--panel2:#1a2439;--line:#293552;--text:#eaf0fa;--muted:#a9b8d4;
+  --label:#8292b4;--brand:#f3b340;--info:#5fb7f2;--good:#45d69a;--bad:#ff9a93;--warn:#f3b340;
+  --ink:#0a0f1c;--r:14px;--r1:7px;--r2:10px;
+  --ui:"Space Grotesk",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
 }
 *{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+html,body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 var(--ui)}
 button,select,input{font:inherit;color:inherit}
 [hidden]{display:none!important}
-#app{max-width:1100px;margin:0 auto;padding:0 16px 48px}
+#app{max-width:1280px;margin:0 auto;padding:0 16px 48px}
 
-/* header */
-header{padding:16px 0 10px}
-.brandbox{display:flex;gap:12px;align-items:center;margin-bottom:12px}
-.brandbox b{font-size:22px;display:block;line-height:1.2}
-.brandbox small{color:var(--muted);font-size:14px}
-#logo svg{width:52px;height:52px;display:block}
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
-.stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 14px}
-.stat label{display:block;font-size:14px;color:var(--muted);font-weight:600}
-.stat b{font-size:22px;line-height:1.3}
-.stat small{display:block;color:var(--muted);font-size:14px}
+/* header: one row of chips, so the scene starts near the top of the window */
+header{display:flex;align-items:center;gap:14px;padding:10px 0;flex-wrap:wrap}
+.brandbox{display:flex;gap:10px;align-items:center;flex:none}
+.brandbox b{font-size:15px;display:block;line-height:1.2;font-weight:600}
+.brandbox small{color:var(--label);font-size:11px;display:block;line-height:1.2}
+#logo svg{width:34px;height:34px;display:block;border-radius:10px}
+.stats{display:flex;gap:8px;flex:999 1 420px;min-width:0;overflow-x:auto;scrollbar-width:none}
+.stats::-webkit-scrollbar{display:none}
+.stat{display:flex;align-items:center;gap:9px;flex:none;background:var(--panel2);border:1px solid var(--line);
+  border-radius:var(--r2);padding:7px 11px;white-space:nowrap}
+.stat .si{width:15px;height:15px;flex:none}
+.stat .sv{display:flex;flex-direction:column;gap:2px;line-height:1.15}
+.stat label{display:block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--label);font-weight:600}
+.stat b{font:600 14px/1.15 var(--mono)}
+.stat b.xp{font-size:12px;font-weight:400;color:var(--muted)}
+.stat small{display:block;color:var(--label);font:11px/1 var(--mono);align-self:flex-end}
+.stat .bar{height:3px;width:92px;border-radius:2px;margin-top:1px}
+.ring{position:relative;width:30px;height:30px;flex:none}
+.ring svg{width:30px;height:30px;display:block}
+.ring circle{fill:none;stroke:var(--line);stroke-width:3}
+.ring circle.fg{stroke:var(--brand);stroke-linecap:round;transition:stroke-dasharray .2s}
+.ring i{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:600 11px/1 var(--mono);font-style:normal}
+.seg{display:flex;gap:2px;padding:3px;background:var(--bg);border:1px solid var(--line);border-radius:var(--r2);flex:none}
+.seg button{background:none;border:0;border-radius:var(--r1);min-width:40px;height:34px;color:var(--muted);
+  font:600 12px/1 var(--mono);cursor:pointer;display:flex;align-items:center;justify-content:center}
+.seg button:hover:not(.on){color:var(--text);background:var(--panel2)}
+.seg button.on{background:var(--brand);color:var(--ink)}
+.seg button svg{width:13px;height:13px}
 
-/* nav */
-nav{display:flex;flex-wrap:wrap;gap:6px;padding:6px 0 10px;margin-bottom:14px;position:sticky;top:0;background:var(--bg);z-index:5;border-bottom:1px solid var(--line)}
-nav button{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 16px;cursor:grab;color:var(--muted);white-space:nowrap;font-size:16px;font-weight:600}
-nav button.on{background:var(--brand);border-color:var(--brand);color:#06111f}
-nav button:hover:not(.on){color:var(--text);border-color:var(--brand)}
+/* nav: an icon rail beside the content rather than a row above it */
+.shell{display:flex;gap:14px;align-items:flex-start}
+#view{flex:1;min-width:0}
+#nav{position:sticky;top:12px;width:76px;flex:none;display:flex;flex-direction:column;gap:2px;
+  padding:7px 6px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r)}
+#nav button{position:relative;background:none;border:0;border-radius:9px;padding:9px 2px;cursor:pointer;
+  color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:4px;font:500 9.5px/1 var(--ui);letter-spacing:.04em}
+#nav button svg{width:19px;height:19px}
+#nav button:hover:not(.on){color:var(--text);background:var(--panel2)}
+#nav button.on{background:var(--panel2);color:var(--text)}
+#nav button.on::before{content:"";position:absolute;left:-6px;top:12px;bottom:12px;width:3px;border-radius:0 3px 3px 0;background:var(--brand)}
 
 /* cards */
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px;margin-bottom:14px}
@@ -66,7 +92,7 @@ select{background:#0a1222;border:1px solid var(--line);border-radius:10px;paddin
 
 /* aircraft cards */
 .ac{display:grid;grid-template-columns:230px 1fr;gap:16px;border:1px solid var(--line);background:var(--panel);border-radius:var(--r);padding:14px;margin-bottom:12px}
-.ac-img{background:linear-gradient(#27406b,#162a4a);border-radius:12px;display:flex;align-items:center;justify-content:center;padding:6px}
+.ac-img{background:linear-gradient(#1e2b46,#141c2e);border-radius:12px;display:flex;align-items:center;justify-content:center;padding:6px}
 .ac-img svg,.cat-img svg{width:100%;height:auto;display:block}
 .ac-head{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start}
 .ac-name{font-size:20px;font-weight:700;display:block}
@@ -84,7 +110,7 @@ select{background:#0a1222;border:1px solid var(--line);border-radius:10px;paddin
 .cat{display:grid;grid-template-columns:230px 1fr auto;gap:16px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px;background:var(--panel2)}
 .cat.locked{opacity:.6}
 .cat.locked .cat-img{filter:grayscale(1) brightness(.7)}
-.cat-img{background:linear-gradient(#27406b,#162a4a);border-radius:10px;padding:6px}
+.cat-img{background:linear-gradient(#1e2b46,#141c2e);border-radius:10px;padding:6px}
 .cat b{font-size:19px}
 .specs{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
 .specs span{background:#0a1222;border:1px solid var(--line);border-radius:8px;padding:3px 9px;font-size:14px}
@@ -118,32 +144,25 @@ th{color:var(--muted);font-weight:600;font-size:14px}
   .cat .btn{width:100%}
 
   /* Desktop chrome ate the top ~550px of a phone screen before any of the game showed. */
-  #app{padding:0 10px 32px}
-  header{padding:10px 0 6px}
-  .brandbox{gap:10px;margin-bottom:8px}
-  .brandbox b{font-size:18px}
-  .brandbox small{font-size:12px}
-  #logo svg{width:38px;height:38px}
-  .stats{grid-template-columns:repeat(3,1fr);gap:6px}
-  .stat{padding:6px 8px;border-radius:9px}
-  .stat label{font-size:11px}
-  .stat b{font-size:15px;line-height:1.2}
-  .stat small{font-size:10px}
-  .stat .bar{height:5px;border-radius:4px}
+  #app{padding:0 10px 78px}
+  header{padding:8px 0 6px;gap:10px}
+  .brandbox small{display:none}
+  #logo svg{width:30px;height:30px}
+  .stats{order:3;flex:1 1 100%}
+  .stat{padding:6px 9px;gap:7px}
+  .stat .bar{width:62px}
+  .stat b.xp{display:none}
+  .seg button{min-width:34px;height:32px}
 
-  /* The nav wraps to several rows here, so sticking it would hide the top of the scene. */
-  nav{position:static;padding:2px 0 6px;margin-bottom:8px;gap:5px}
-  nav button{padding:8px 10px;font-size:13px;border-radius:9px}
-  nav button.spd{padding:8px 9px;min-width:38px;font-size:13px}
-  .navgap{display:none}
+  /* The rail would eat a third of a phone screen, so it docks to the bottom as a tab bar. */
+  #nav{position:fixed;left:0;right:0;bottom:0;top:auto;width:auto;flex-direction:row;z-index:6;
+    border-radius:0;border-width:1px 0 0;padding:0 2px;gap:0;background:var(--panel)}
+  #nav button{flex:1;height:60px;justify-content:center;padding:0;font-size:10px}
+  #nav button.on{background:none;color:var(--brand)}
+  #nav button.on::before{left:14%;right:14%;top:auto;bottom:auto;width:auto;height:3px;border-radius:0 0 3px 3px}
 
   .card{padding:12px;margin-bottom:10px}
   .card h3{font-size:17px;margin-bottom:8px}
-  .row.tools{gap:5px}
-  .glab{display:none}
-  .tgroup>.tgh{display:flex;width:100%;justify-content:flex-start;align-items:center;gap:8px;margin-bottom:6px;font-size:14px}
-  .tgcur{color:var(--brand);font-weight:600}
-  .tgroup:not(.open) .tgbody{display:none}
 }
 
 /* pixel airport scene */
@@ -157,13 +176,6 @@ th{color:var(--muted);font-weight:600;font-size:14px}
 .krows td{border-bottom:1px dashed #3b4575;padding:7px 4px;font-size:15px}
 .krows td:last-child{text-align:right;color:#ffe36b}
 
-/* grouped build toolbar */
-.row.tools{gap:6px;margin-bottom:7px;align-items:center}
-.row.tools:last-child{margin-bottom:0}
-.glab{font-size:13px;font-weight:700;color:var(--muted);min-width:64px}
-.tgh{display:none}
-.navgap{flex:1 1 auto;min-width:8px}
-nav button.spd{padding:10px 13px;min-width:46px;font-size:15px}
 .pix{position:relative}
 #aover{position:absolute;inset:0;pointer-events:none}
 .aover{position:absolute;top:10px;max-height:calc(100% - 20px);width:min(330px,62%);overflow:auto;pointer-events:auto;
@@ -189,7 +201,65 @@ nav button.spd{padding:10px 13px;min-width:46px;font-size:15px}
   .board td:first-child .small{display:none}
   .board td:nth-child(2){white-space:nowrap}
 }
-.row.tools.vrow{padding-bottom:7px;border-bottom:1px solid var(--line)}
-.lgl{min-width:0;margin-left:10px}
 .btn.sm.lt{padding:7px 9px;min-width:34px;font-size:15px;line-height:1}
-@media(max-width:760px){ .lgl{display:none} .btn.sm.lt{padding:7px 8px;min-width:32px} }
+@media(max-width:760px){ .btn.sm.lt{padding:7px 8px;min-width:32px} }
+
+/* ---- figures line up column to column ---- */
+.kpi b,.chip,.tag,.specs span,td,th,.krows td,.board{font-family:var(--mono)}
+.kpi label,.card h3,.ac-name,#modal h2,.btn,#nav button,.field>label{font-family:var(--ui)}
+.bar i{background:var(--info)}
+.ac[data-state=flying] .chip{border-color:var(--info);color:var(--info)}
+.board tr[data-st=flying] .chip{border-color:var(--info);color:var(--info)}
+
+/* ---- the scene owns the screen; its controls float on it ---- */
+.pix{padding:0;border:0;border-radius:var(--r);box-shadow:none;overflow:hidden;background:var(--panel)}
+#scene{border-radius:0}
+/* the scene draws its own status strip across the top 30 of 430 canvas rows, so clear it */
+.scenectl{position:absolute;top:calc(6.98% + 8px);right:10px;left:10px;display:flex;flex-wrap:wrap;gap:7px;justify-content:flex-end;z-index:3}
+.ctlgrp{display:flex;gap:2px;padding:3px;background:rgba(10,15,28,.84);border:1px solid var(--line);
+  border-radius:var(--r2);backdrop-filter:blur(6px)}
+.ctlgrp .btn{background:none;border:0;border-radius:var(--r1);min-height:36px;height:36px;min-width:36px;
+  padding:0 11px;font-size:12px;font-weight:600;color:var(--muted);display:flex;align-items:center;justify-content:center}
+.ctlgrp .btn:hover:not(.pri){color:var(--text);background:var(--panel2)}
+.ctlgrp .btn.pri{background:var(--brand);color:var(--ink)}
+.ctlgrp .btn.lt{font-family:var(--mono);padding:0 9px}
+.ctlgrp .btn.add{border:1px dashed #3b4a6b}
+
+/* ---- build dock ---- */
+.dock{position:absolute;left:10px;right:10px;bottom:10px;z-index:3;display:flex;align-items:center;gap:10px;
+  padding:9px 10px;background:rgba(10,15,28,.9);border:1px solid var(--line);border-radius:var(--r);backdrop-filter:blur(6px)}
+.dock.armed{border-color:var(--brand)}
+.dlab{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--label);font-weight:600;flex:none}
+.dtools{display:flex;gap:8px;overflow-x:auto;flex:1;min-width:0;scrollbar-width:none;padding:1px}
+.dtools::-webkit-scrollbar{display:none}
+.tool{display:flex;align-items:center;gap:9px;height:46px;padding:0 13px;flex:none;cursor:pointer;
+  background:#141c2e;border:1px solid var(--line);border-radius:var(--r2);color:var(--text);text-align:left}
+.tool:hover:not(.on){border-color:var(--muted)}
+.tool.on{border-color:var(--brand);background:rgba(243,179,64,.14)}
+.tool .ti{font-size:17px;line-height:1;flex:none}
+.tool .tl{display:flex;flex-direction:column;line-height:1.2;font-size:12.5px;font-weight:600;white-space:nowrap}
+.tool .tl small{font:400 10.5px/1.3 var(--mono);color:var(--muted)}
+.dnote{font:11px/1.3 var(--mono);color:var(--label);flex:none;max-width:26%;text-align:right;padding-left:10px;border-left:1px solid var(--line)}
+
+/* the selection card clears the control row above it and the dock below */
+.aover{top:calc(6.98% + 52px);max-height:max(170px,calc(100% - 190px))}
+
+/* ---- departures board ---- */
+.board .chip{position:relative;padding-left:21px}
+.board .chip::before{content:"";position:absolute;left:9px;top:50%;margin-top:-3.5px;width:7px;height:7px;border-radius:50%;background:currentColor}
+
+@media(max-width:760px){
+  /* the control cluster wraps, and every extra row is scene you cannot see: pinch and drag cover these two */
+  .scenectl{gap:5px;top:calc(6.98% + 6px);left:6px;right:6px;flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;scrollbar-width:none}
+  .scenectl::-webkit-scrollbar{display:none}
+  .ctlgrp{flex:none}
+  .scenectl [data-act=zoom],.scenectl [data-act=centre]{display:none}
+  .ctlgrp{padding:2px;gap:1px}
+  .ctlgrp .btn{height:32px;min-height:32px;min-width:32px;padding:0 8px;font-size:11px}
+  #nav button{font-size:9px;overflow:hidden}
+  .dock{left:0;right:0;bottom:0;border-radius:var(--r) var(--r) 0 0;border-width:1px 0 0;flex-wrap:wrap;padding:8px}
+  .dlab,.dnote{display:none}
+  .dtools{gap:7px}
+  .tool{height:44px;padding:0 11px}
+  .aover{top:calc(6.98% + 48px);max-height:max(150px,calc(100% - 176px))}
+}

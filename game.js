@@ -636,6 +636,10 @@ function updateUI(){
   document.querySelectorAll('[data-bind]').forEach(el => cache(el, 0, bindVal(el.dataset.bind), 'textContent'));
   document.querySelectorAll('[data-html]').forEach(el => cache(el, 0, bindVal(el.dataset.html), 'innerHTML'));
   document.querySelectorAll('[data-w]').forEach(el => { const w = widthVal(el.dataset.w).toFixed(1)+'%'; if(el._v!==w){ el._v=w; el.style.width=w; } });
+  document.querySelectorAll('[data-dash]').forEach(el => {              // the level ring: r=15, so 2*PI*r is 94.25
+    const d = (widthVal(el.dataset.dash)*0.9425).toFixed(1) + ' 94.25';
+    if(el._v !== d){ el._v = d; el.setAttribute('stroke-dasharray', d); }
+  });
   document.querySelectorAll('[data-cost]').forEach(el => {
     el.disabled = G.cash < +el.dataset.cost || (el.dataset.gate && G.fleet.length >= gates())
       || (el.dataset.tok && G.tok < +el.dataset.tok)
@@ -657,20 +661,33 @@ function updateUI(){
 }
 
 /* ---------- UI: tabs ---------- */
-const TABS = [['airport','🛫 Airport'],['overview','🌍 Network'],['fleet','✈️ Fleet'],['routes','🗺️ Routes'],
-              ['fuel','⛽ Fuel & Carbon'],['auto','🤖 Automation'],['company','🏆 Company']];
-const SPEEDS = [[0,'⏸','Pause'],[1,'▶','Normal speed'],[2,'2×','Double speed'],[4,'4×','Quadruple speed']];
+const ICO = d => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" ' +
+  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
+const TABS = [
+  ['airport', 'Airport', ICO('<path d="M3 11l9-6 9 6"/><path d="M5 10v9h14v-9"/><path d="M10 19v-5h4v5"/>')],
+  ['overview', 'Network', ICO('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/>')],
+  ['fleet', 'Fleet', ICO('<path d="M12 3l1.6 6.4L21 11l-7.4 1.6L12 21l-1.6-8.4L3 11l7.4-1.6z"/>')],
+  ['routes', 'Routes', ICO('<circle cx="6" cy="7" r="2.5"/><circle cx="18" cy="17" r="2.5"/><path d="M8.5 7H14a3.5 3.5 0 010 7h-4a3.5 3.5 0 000 3h5.5"/>')],
+  ['fuel', 'Fuel', ICO('<path d="M4 20V7a2 2 0 012-2h5a2 2 0 012 2v13"/><path d="M3 20h12"/><path d="M17 20v-8l3-3v11"/><path d="M6 9h5"/>')],
+  ['auto', 'Auto', ICO('<rect x="4" y="9" width="16" height="11" rx="2.5"/><path d="M12 9V5M9 14h.01M15 14h.01"/>')],
+  ['company', 'Company', ICO('<path d="M7 4h10v5a5 5 0 01-10 0z"/><path d="M7 6H4v1a3 3 0 003 3M17 6h3v1a3 3 0 01-3 3"/><path d="M12 14v3M9 20h6"/>')]];
+const SPEEDS = [[0, ICO('<path d="M7 5v14M17 5v14"/>'), 'Pause'],
+                [1, ICO('<path d="M8 5l11 7-11 7z" fill="currentColor"/>'), 'Normal speed'],
+                [2, '2×', 'Double speed'], [4, '4×', 'Quadruple speed']];
 let speed = 1;                                 // session only: a reload always comes back at normal speed
 
 function buildNav(){
-  $('#nav').innerHTML = TABS.map(([id,l]) => `<button data-act="tab" data-arg="${id}" class="${id===tab?'on':''}">${l}</button>`).join('')
-    + '<span class="navgap"></span>'
-    + SPEEDS.map(([v,l,t]) => `<button class="spd ${v===speed?'on':''}" data-act="speed" data-arg="${v}" title="${t}">${l}</button>`).join('');
+  $('#nav').innerHTML = TABS.map(([id, l, ic]) => '<button data-act="tab" data-arg="' + id + '" class="' +
+    (id === tab ? 'on' : '') + '" title="' + l + '">' + ic + '<span>' + l + '</span></button>').join('');
+  $('#speed').innerHTML = SPEEDS.map(([v, l, t]) => '<button class="spd ' + (v === speed ? 'on' : '') +
+    '" data-act="speed" data-arg="' + v + '" title="' + t + '" aria-label="' + t + '">' + l + '</button>').join('');
 }
 function build(){
   buildNav();
   const v = $('#view');
   v.innerHTML = ({overview:bOverview, fleet:bFleet, routes:bRoutes, airport:bAirport, fuel:bFuel, auto:bAuto, company:bCompany})[tab]();
+  const on = $('.tool.on'), dt = $('.dtools');                  // the dock scrolls, so keep the armed tool in sight
+  if(on && dt) dt.scrollLeft = on.offsetLeft - dt.clientWidth/2 + on.offsetWidth/2;
   updateUI();
 }
 const costBtn = (label, cost, act, arg, extra='') =>
@@ -1934,46 +1951,52 @@ const MODE_GROUPS = [
 ];
 const modeLabel = m => { const e = MODE_GROUPS.flatMap(g => g[1]).find(z => z[0] === m); return e && e[1] ? e[1] : FAC[m].icon + ' ' + FAC[m].name; };
 const MODES = MODE_GROUPS.flatMap(g => g[1]).map(z => [z[0], modeLabel(z[0])]);
-// On a narrow screen the fourteen terminal tools run to eight rows, so each named group folds
-// behind a header. The header is hidden on desktop, where the groups always show.
-// Only the group belonging to the half you are looking at is listed.
-let toolGroup = '';
-function toolbarHTML(){
-  const vb = (v, l) => '<button class="btn sm ' + (view === v ? 'pri' : '') +
-    '" data-act="view" data-arg="' + v + '">' + l + '</button>';
-  return MODE_GROUPS.map(g => {
-    const name = g[0];
-    if(name === 'Terminal' && view !== 'term') return '';
-    if(name === 'Airside' && view !== 'air') return '';
-    const btns = g[1].map(z => '<button class="btn sm ' + (z[0] === mode ? 'pri' : '') +
-      '" data-act="mode" data-arg="' + z[0] + '">' + modeLabel(z[0]) + '</button>').join('');
-    if(!name){
-      const look = '<button class="btn sm" data-act="zoom">\u{1F50D} ' + ['Close', 'Wide', 'Whole map'][zoom] +
-        '</button><button class="btn sm" data-act="turn">\u27F3 Rotate</button>' +
-        '<button class="btn sm" data-act="centre">\u2316 Centre</button>';
-      const lb = DAYKEYS.map(k => '<button class="btn sm lt ' + (daylight === k ? 'pri' : '') +
-        '" data-act="light" data-arg="' + k + '" title="' + (k === 'auto' ? 'Follow the clock' : DAYLIGHT[k].name) + '">' +
-        (k === 'auto' ? '\u23F1' : DAYLIGHT[k].icon) + '</button>').join('');
-      let fb = '';
-      if(view === 'term'){
-        for(let f = 0; f < nFloors(); f++) fb += '<button class="btn sm lt ' + (floor === f ? 'pri' : '') +
-          '" data-act="floor" data-arg="' + f + '" title="Floor ' + (f+1) + '">' + (f+1) + 'F</button>';
-        if(nFloors() < FLOORS) fb += '<button class="btn sm lt" data-act="addfloor" data-cost="' + FLOOR_COST[nFloors()] +
-          '" data-tok="' + FLOOR_TOK[nFloors()] + '" title="Open floor ' + (nFloors()+1) + ' for ' +
-          money(FLOOR_COST[nFloors()]) + ' and ' + FLOOR_TOK[nFloors()] + ' tokens">+</button>';
-        fb = '<span class="glab lgl">Floor</span>' + fb;
-      }
-      return '<div class="row tools vrow">' + vb('term', '\u{1F3E2} Terminal') + vb('air', '\u{1F6EB} Airside') + fb +
-        '<span class="glab lgl">Daylight</span>' + lb + '</div>' +
-        '<div class="row tools">' + btns + look + '</div>';
-    }
-    const open = toolGroup === name, cur = g[1].find(z => z[0] === mode);
-    return '<div class="tgroup' + (open ? ' open' : '') + '">' +
-      '<button class="btn sm tgh" data-act="group" data-arg="' + name + '">' +
-      (open ? '\u25BE ' : '\u25B8 ') + name +
-      (cur && !open ? '<span class="tgcur">' + modeLabel(cur[0]) + '</span>' : '') + '</button>' +
-      '<div class="row tools tgbody"><span class="glab">' + name + '</span>' + btns + '</div></div>';
+// Both the view controls and the build tools float on the scene, so the map never scrolls out of
+// reach of the thing you are building with. Only the half you are looking at offers its tools.
+function sceneCtlHTML(){
+  const b = (act, arg, label, on, title, cls) => '<button class="btn sm ' + (on ? 'pri ' : '') + (cls || '') +
+    '" data-act="' + act + '"' + (arg == null ? '' : ' data-arg="' + arg + '"') +
+    ' title="' + title + '" aria-label="' + title + '">' + label + '</button>';
+  let g = '<div class="ctlgrp">' + b('view', 'air', 'Airside', view === 'air', 'The runways and the stands') +
+    b('view', 'term', 'Terminal', view === 'term', 'Inside the hall') + '</div>';
+  if(view === 'term'){
+    let fb = '';
+    for(let f = 0; f < nFloors(); f++) fb += b('floor', f, (f+1) + 'F', floor === f, 'Floor ' + (f+1), 'lt');
+    if(nFloors() < FLOORS) fb += '<button class="btn sm lt add" data-act="addfloor" data-cost="' + FLOOR_COST[nFloors()] +
+      '" data-tok="' + FLOOR_TOK[nFloors()] + '" title="Open floor ' + (nFloors()+1) + ' for ' +
+      money(FLOOR_COST[nFloors()]) + ' and ' + FLOOR_TOK[nFloors()] + ' tokens">+</button>';
+    g += '<div class="ctlgrp">' + fb + '</div>';
+  }
+  return g + '<div class="ctlgrp">' + b('turn', null, '⟳', false, 'Rotate the airport') +
+    b('zoom', null, '🔍', false, ['Close', 'Wide', 'Whole map'][zoom]) +
+    b('centre', null, '⌖', false, 'Centre the view') + '</div>' +
+    '<div class="ctlgrp">' + DAYKEYS.map(k => b('light', k, k === 'auto' ? '⏱' : DAYLIGHT[k].icon,
+      daylight === k, k === 'auto' ? 'Follow the clock' : DAYLIGHT[k].name, 'lt')).join('') + '</div>';
+}
+const toolCost = m => m === 'run' ? money(runCost()) + ' / tile'
+  : m === 'taxi' ? money(taxiCost()) + ' / tile'
+  : m === 'stand' ? G.stands.length + '/' + gates() + ' used'
+  : m === 'del' ? '50% back'
+  : m === 'sel' ? 'Tap to inspect'
+  : money(FAC[m].cost);
+function dockNote(){
+  if(mode === 'run') return 'Drag sideways · licence caps at ' + licLen() + ' m';
+  if(mode === 'taxi') return 'Drag from every stand to a runway';
+  if(mode === 'stand') return 'Tap to drop a ' + SS + 'x' + SS + ' stand';
+  if(mode === 'del') return 'Tap or drag to remove';
+  if(mode === 'sel') return 'Drag to pan · tap for details';
+  return 'Drag across empty hall tiles';
+}
+function dockHTML(){
+  const half = MODE_GROUPS.find(g => g[0] === (view === 'term' ? 'Terminal' : 'Airside'));
+  const chips = MODE_GROUPS[0][1].concat(half[1]).map(z => {
+    const m = z[0], lab = modeLabel(m), sp = lab.indexOf(' ');
+    return '<button class="tool' + (m === mode ? ' on' : '') + '" data-act="mode" data-arg="' + m + '">' +
+      '<span class="ti">' + lab.slice(0, sp) + '</span><span class="tl">' + lab.slice(sp + 1) +
+      '<small>' + toolCost(m) + '</small></span></button>';
   }).join('');
+  return '<span class="dlab">Build</span><div class="dtools">' + chips + '</div>' +
+    '<span class="dnote">' + dockNote() + '</span>';
 }
 function fitsRunway(m = runwayLen()){ return TYPES.filter((t, i) => RWY[i] <= m).pop(); }
 function rwyList(){
@@ -2113,8 +2136,10 @@ function renderPanel(){
 }
 function bAirport(){
   ensureAirport();
-  return `<div class="card pix"><canvas id="scene" width="${CW}" height="${CH}"></canvas><div id="aover">${overHTML()}</div></div>
-  <div class="card">${toolbarHTML()}</div>
+  return `<div class="card pix"><canvas id="scene" width="${CW}" height="${CH}"></canvas>
+  <div class="scenectl">${sceneCtlHTML()}</div>
+  <div class="dock${mode === 'sel' ? '' : ' armed'}">${dockHTML()}</div>
+  <div id="aover">${overHTML()}</div></div>
   <div id="apanel">${belowHTML()}</div>${boardHTML()}`;
 }
 
@@ -2255,7 +2280,6 @@ const ACT = {
   checkAll: () => G.fleet.forEach(ac => { if(['ready','grounded'].includes(ac.state) && ac.cond<95) startCheck(ac); }),
   sell: a => { const i = G.fleet.findIndex(z=>z.id==a); if(i<0 || G.fleet[i].state==='flying') return; G.cash += sellValue(G.fleet[i]); G.fleet.splice(i,1); sel = null; build(); },
   mode: a => { mode = a; sel = null; if(FAC[a]) setView('term'); else if(a === 'stand' || a === 'taxi' || a === 'run') setView('air'); build(); },
-  group: a => { toolGroup = toolGroup === a ? "" : a; build(); },
   view: a => { setView(a); sel = null; build(); },
   light: a => { daylight = a; build(); },
   floor: a => { floor = clamp(+a, 0, nFloors()-1); sel = null; build(); },
