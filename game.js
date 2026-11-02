@@ -682,10 +682,19 @@ function buildNav(){
   $('#speed').innerHTML = SPEEDS.map(([v, l, t]) => '<button class="spd ' + (v === speed ? 'on' : '') +
     '" data-act="speed" data-arg="' + v + '" title="' + t + '" aria-label="' + t + '">' + l + '</button>').join('');
 }
+// The airport is the game, so it stays on screen and every other section opens beside it in a drawer.
 function build(){
   buildNav();
-  const v = $('#view');
-  v.innerHTML = ({overview:bOverview, fleet:bFleet, routes:bRoutes, airport:bAirport, fuel:bFuel, auto:bAuto, company:bCompany})[tab]();
+  ensureAirport();
+  const open = tab !== 'airport', dr = $('#drawer');
+  $('.shell').classList.toggle('panel', open);
+  $('#stage').innerHTML = stageHTML();
+  dr.hidden = !open;
+  dr.innerHTML = !open ? '' :
+    '<div class="dhead"><h2>' + TABS.find(t => t[0] === tab)[1] + '</h2>' +
+    '<button class="dclose" data-act="tab" data-arg="airport" aria-label="Close this panel">×</button></div>' +
+    '<div class="dbody">' +
+    ({overview:bOverview, fleet:bFleet, routes:bRoutes, fuel:bFuel, auto:bAuto, company:bCompany})[tab]() + '</div>';
   const on = $('.tool.on'), dt = $('.dtools');                  // the dock scrolls, so keep the armed tool in sight
   if(on && dt) dt.scrollLeft = on.offsetLeft - dt.clientWidth/2 + on.offsetWidth/2;
   updateUI();
@@ -1625,7 +1634,7 @@ function centreCam(){
   cam.x += CW/2 - X; cam.y += (CH+HUD)/2 - Y + 20; cam.set = true;
 }
 function drawScene(dt){
-  const c = $('#scene'); if(!c) return;
+  const c = $('#scene'); if(!c || !c.offsetParent) return;      // offsetParent goes null once a phone hides the stage
   const x = c.getContext('2d'); x.imageSmoothingEnabled = false;
   ensureAirport();
   if(!cam.set) centreCam();
@@ -2134,13 +2143,12 @@ function renderPanel(){
   if(p) p.innerHTML = belowHTML();
   updateUI();
 }
-function bAirport(){
-  ensureAirport();
+function stageHTML(){
   return `<div class="card pix"><canvas id="scene" width="${CW}" height="${CH}"></canvas>
   <div class="scenectl">${sceneCtlHTML()}</div>
   <div class="dock${mode === 'sel' ? '' : ' armed'}">${dockHTML()}</div>
-  <div id="aover">${overHTML()}</div></div>
-  <div id="apanel">${belowHTML()}</div>${boardHTML()}`;
+  <div id="aover">${overHTML()}</div></div>` +
+  (tab === 'airport' ? `<div id="apanel">${belowHTML()}</div>${boardHTML()}` : '');
 }
 
 function bFuel(){
@@ -2271,7 +2279,7 @@ function drawSpark(){
 
 /* ---------- events ---------- */
 const ACT = {
-  tab: a => { tab = a; build(); },
+  tab: a => { tab = a === tab && a !== 'airport' ? 'airport' : a; build(); },   // the rail toggles its own drawer
   speed: a => { speed = +a; buildNav(); },
   buy: a => { if(buyAircraft(+a)) build(); },
   dispatch: a => { const ac = G.fleet.find(z=>z.id==a); if(ac && ac.state==='ready') tryDepart(ac); },
@@ -2407,7 +2415,7 @@ function main(){
 
   let last = Date.now(), saveT = 0;
   let lf = performance.now();
-  (function loop(t){ const dt = Math.min(0.1, (t-lf)/1000); lf = t; if(G && tab === 'airport') drawScene(dt); requestAnimationFrame(loop); })(lf);
+  (function loop(t){ const dt = Math.min(0.1, (t-lf)/1000); lf = t; if(G) drawScene(dt); requestAnimationFrame(loop); })(lf);
   setInterval(() => {
     if(!G) return;
     const now = Date.now(); let dt = (now-last)/1000; last = now;

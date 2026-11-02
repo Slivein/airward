@@ -42,7 +42,7 @@ header{display:flex;align-items:center;gap:14px;padding:10px 0;flex-wrap:wrap}
 
 /* nav: an icon rail beside the content rather than a row above it */
 .shell{display:flex;gap:14px;align-items:flex-start}
-#view{flex:1;min-width:0}
+#stage{flex:1;min-width:0}
 #nav{position:sticky;top:12px;width:76px;flex:none;display:flex;flex-direction:column;gap:2px;
   padding:7px 6px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r)}
 #nav button{position:relative;background:none;border:0;border-radius:9px;padding:9px 2px;cursor:pointer;
@@ -154,6 +154,12 @@ th{color:var(--muted);font-weight:600;font-size:14px}
   .stat b.xp{display:none}
   .seg button{min-width:34px;height:32px}
 
+  /* One phone screen does not hold both, so opening a section puts the scene away until you close it. */
+  .shell{flex-wrap:wrap}
+  .shell #drawer{width:auto;flex:1 1 100%;position:static;max-height:none}   /* beats the clamp below */
+  #toasts{bottom:72px}                                                      /* clear of the tab bar */
+  .shell.panel #stage{display:none}
+
   /* The rail would eat a third of a phone screen, so it docks to the bottom as a tab bar. */
   #nav{position:fixed;left:0;right:0;bottom:0;top:auto;width:auto;flex-direction:row;z-index:6;
     border-radius:0;border-width:1px 0 0;padding:0 2px;gap:0;background:var(--panel)}
@@ -243,6 +249,25 @@ th{color:var(--muted);font-weight:600;font-size:14px}
 
 /* the selection card clears the control row above it and the dock below */
 .aover{top:calc(6.98% + 52px);max-height:max(170px,calc(100% - 190px))}
+
+/* ---- the section drawer, beside the scene rather than instead of it ---- */
+#drawer{width:clamp(320px,30%,440px);flex:none;position:sticky;top:12px;max-height:calc(100vh - 92px);
+  display:flex;flex-direction:column;overflow:hidden;background:var(--panel);border:1px solid var(--line);border-radius:var(--r)}
+#drawer[hidden]{display:none}
+.dhead{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);flex:none}
+.dhead h2{margin:0;font-size:15px;font-weight:600}
+.dclose{margin-left:auto;width:32px;height:32px;flex:none;border:0;border-radius:8px;background:var(--panel2);
+  color:var(--muted);cursor:pointer;font-size:19px;line-height:1}
+.dclose:hover{color:var(--text)}
+.dbody{flex:1;overflow:auto;padding:12px}
+.dbody>*:last-child{margin-bottom:0}
+/* the drawer is a column, so the wide layouts stack the way they already do on a phone */
+.dbody .card{background:var(--panel2)}
+.dbody .ac,.dbody .cat,.dbody .g2,.dbody .g4{grid-template-columns:1fr}
+.dbody .cat .btn{width:100%}
+.dbody #map{height:260px}
+/* with a drawer open the scene is narrow, so the tools get the hint text back */
+.shell.panel .dnote{display:none}
 
 /* ---- departures board ---- */
 .board .chip{position:relative;padding-left:21px}
