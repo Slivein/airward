@@ -1,4 +1,4 @@
-# Airward (SkyIdle)
+# Airward
 
 An idle airline manager. Start a brand, build a pixel-art airport, buy aircraft, open routes, and unlock automation as you level up.
 
@@ -6,10 +6,10 @@ An idle airline manager. Start a brand, build a pixel-art airport, buy aircraft,
 
 ## How to play
 - **The airport stays on screen.** Every other section opens in a drawer beside it, so you can lay a taxiway while you read your fleet; clicking a section again, or its close button, puts the drawer away. On a phone the drawer takes the screen and the airport waits behind it.
-- **Airport tab:** a close-up isometric airport you lay out yourself, on a 60×60 map you unlock a block at a time. With Select active, drag to pan; with a build tool active, drag to lay a whole run of tiles in one go. The zoom button cycles close / wide / whole map. Rotate turns the whole airport a quarter turn at a time, so you can look at a layout from any side. The daylight buttons hold the hall at morning, midday, evening or night, each with its own wash, or leave it following the clock. Close up indoors, passengers wear name tags. The hall is a 12x10 room, not a corridor, and opens onto two more floors: 1F, 2F and 3F each hold their own facilities and their own passengers, so a second floor needs its own check-in and security before anyone will use it. Pinch with two fingers, or pinch the trackpad, to zoom around the point you are holding. Two views, **Terminal** and **Airside**, each with its own camera and zoom: indoors is drawn at nearly twice the scale so the amenities actually read, and each shows only its own tools. Picking a tool takes you to the half it belongs to. The build dock floats on the scene itself, each tool carrying its own live price, and it scrolls sideways rather than folding away; the view, floor, rotate and daylight controls sit in a row above it, on the scene too.
-  - **Land** — the 60×60 map is twenty-five 12×12 blocks and you start on one of them: a narrow hall, one stand and a short runway. Every locked block next to land you own shows its price on the map; tap it in Select mode to buy. Blocks further from your terminal cost more, and anything three blocks out also costs **flight tokens**. Blocks in the top row widen the terminal hall and the landside plots; the rest give you more airside.
+- **Airport tab:** a close-up isometric airport you lay out yourself, on a 60×60 map you unlock a block at a time. With Select active, drag to pan; with a build tool active, drag to lay a whole run of tiles in one go. The zoom button cycles close / wide / whole map. Rotate turns the whole airport a quarter turn at a time, so you can look at a layout from any side. The daylight buttons hold the hall at morning, midday, evening or night, each with its own wash, or leave it following the clock. Close up indoors, passengers wear name tags. The hall is a 12x10 room, not a corridor, and opens onto two more floors: 1F, 2F and 3F each hold their own facilities and their own passengers, so a second floor needs its own check-in and security before anyone will use it. Pinch with two fingers, or pinch the trackpad, to zoom around the point you are holding. Two views, **Terminal** and **Airside**, each with its own camera and zoom: indoors is drawn at nearly twice the scale so the amenities actually read, and each shows only its own tools. Picking a tool takes you to the half it belongs to. The collapsible build dock sits below the map. View, floor, rotation and daylight controls sit above it, so neither covers a tile.
+  - **Land** — the 60×60 map is twenty-five 12×12 blocks and you start with a terminal block and an airside block: a deep hall, one stand and a short runway. Every locked block next to land you own shows its price on the map; tap it in Select mode to buy. Blocks further from your terminal cost more, and anything three blocks out also costs **flight tokens**. Blocks in the top row widen the terminal hall and the landside plots; the rest give you more airside.
   - **Terminal interior** (14 types: Check-in, Security, Vending, Newsstand, Cafe, Restaurant, Duty-free, Currency Exchange, Premium Lounge, Seating, Play Area, Restroom, plus two that work by proximity — Indoor Garden and Information Desk) — place these inside the terminal hall. Passengers walk in, queue at check-in, clear security, then spend money at your shops. Every passenger needs a check-in desk and a security lane or they give up and walk out. Long queues sour their mood, which feeds your brand rating. Shops trade off speed against spend — a vending machine serves a crowd for pennies, a lounge earns a fortune but ties a passenger up. A garden lifts the mood of anyone standing near it; an information desk placed beside a queue makes people far more patient. Happy passengers browse an extra shop. **Your terminal sets your load factor:** anyone who runs out of patience in a queue, or finds no desk to use, walks out, and your flights leave with the seats those people would have filled — from x1.00 down to x0.55. More desks, a garden or an information desk beside a queue all cut the walk-outs.
-  - **Select** — tap a plot to build a facility, a building to upgrade it, or a plane to dispatch/service it. Anything you tap on the map — a plot, a building, a facility, a stand, an aircraft, a runway or a block of land for sale — opens its card floating over the scene, on the side away from what you tapped, so you can still see it. The card under the scene keeps showing the airport summary.
+  - **Select** — tap a plot to build a facility, a building to upgrade it, or a plane to dispatch/service it. Selected objects open an inspector beside the map on desktop and below it on mobile. General expansion controls remain in **Airport operations & expansion**.
   - **Stand** — drop a 3x3 parking stand (one per gate slot you own). Plane *n* parks at stand *n*.
   - **Taxiway** — drag to paint the route from each stand to a runway. A plane with no connected route cannot depart, and taxiways cannot cross a runway.
   - **Runway** — drag sideways to lay tiles; the run stays in the row you started on. One aircraft uses a runway at a time: a departure holds at its stand rather than rolling while another is landing, so a busy airport needs roughly one runway per four aircraft. Every line of 2+ tiles is its own runway at 250 m per tile, so you can build several. Bigger aircraft need longer runways. A stand uses the longest runway its taxiways reach, and one runway launches one aircraft at a time, so a second runway clears a departure queue.
@@ -26,7 +26,7 @@ An idle airline manager. Start a brand, build a pixel-art airport, buy aircraft,
 - Progress is saved in your browser. Offline earnings (up to 12h) only count for what you have automated.
 
 ## Run locally
-No build step. Open `index.html` in a browser, or serve the folder:
+No build step. Serve the folder over HTTP:
 
 ```bash
 npx http-server -p 8080
@@ -41,3 +41,19 @@ Balance numbers live in the `TYPES`, `UPG` and `AUTO` tables at the top of `game
 
 ## Deploy
 Static site, hosted on Vercel. Every push to `main` redeploys.
+
+## Design and verification
+
+The interface follows the Airward Figma design sheets: cream inset panels, navy pixel borders, blue selections, gold actions, and locally hosted Pixelify Sans / IBM Plex Mono. The Figma logo and font licenses are in `assets/`. The airport renderer stays dynamic; the concept screenshots are not used as backgrounds.
+
+All seven sections remain available. Desktop management panels sit beside the game; mobile uses Airport, Fleet, Routes and **More** navigation. The overview shows live XP objectives and departures. Routes includes aircraft/destination selection with real fuel and net-income estimates. Saves retain the `skyidle_save_v1` key.
+
+Browser regression check (isolated save, local assets, no production writes):
+
+```sh
+npm install --no-save --package-lock=false playwright
+npx playwright install chromium
+node tests/redesign.cjs
+```
+
+Optionally set `AIRWARD_PLAYWRIGHT_PATH` to an existing Playwright module and `AIRWARD_BROWSER_PATH` to an installed Chromium browser. Screenshots are written to `tmp/`. Checks cover all sections, desktop/tablet/phone widths, floor construction and pricing, persistence, dispatch and mobile navigation.

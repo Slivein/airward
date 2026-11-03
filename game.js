@@ -1,5 +1,5 @@
 'use strict';
-/* SkyIdle — an idle airline manager. Pure client-side, saves to localStorage. */
+/* Airward — an idle airline manager. Pure client-side, saves to localStorage. */
 
 const SAVE_KEY = 'skyidle_save_v1';
 const GROUND = 30;           // condition below which an aircraft is grounded
@@ -562,6 +562,9 @@ function load(){
 function bindVal(key){
   const [k, id, x] = key.split(':');
   switch(k){
+    case 'clock': { const c = gameClock(); return `DAY ${Math.floor(G.time/DAY)+1} · ${c.hh}:${c.mm}`; }
+    case 'objective': return objectiveHTML();
+    case 'departure': return departureHTML();
     case 'bname': return G.brand.name;
     case 'btag': return G.brand.hub + ' hub' + (G.shares ? ` · ${G.shares} shares` : '');
     case 'cash': return money(G.cash);
@@ -654,6 +657,10 @@ function updateUI(){
     const a = G.fleet.find(z => z.id == el.dataset.acrow);
     if(a && el.dataset.st !== a.state) el.dataset.st = a.state;
   });
+  document.querySelectorAll('[data-dispatch-id]').forEach(el => {
+    const a = G.fleet.find(a => a.id === +el.dataset.dispatchId);
+    el.disabled = !a || a.state !== 'ready' || !a.route;
+  });
   const co = $('#charterBtn'); if(co) co.disabled = G.charterCD > 0;
   if(dirty && !(document.activeElement && /SELECT|INPUT/.test(document.activeElement.tagName))){ dirty=false; build(); }
   if(tab==='overview') drawMap();
@@ -675,12 +682,58 @@ const SPEEDS = [[0, ICO('<path d="M7 5v14M17 5v14"/>'), 'Pause'],
                 [1, ICO('<path d="M8 5l11 7-11 7z" fill="currentColor"/>'), 'Normal speed'],
                 [2, '2×', 'Double speed'], [4, '4×', 'Quadruple speed']];
 let speed = 1;                                 // session only: a reload always comes back at normal speed
+let moreNav = false, buildOpen = window.innerWidth > 760, routeAircraft = null;
+const escHTML = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function objectiveHTML(){
+  const next = Object.keys(AUTO).find(k => autoReq(k) > G.level);
+  return `<section class="card objective"><div class="eyebrow">NEXT OBJECTIVE</div>
+    <h3>${next ? 'A little airline,<br>a big ambition.' : 'Keep your world growing.'}</h3>
+    <p>Reach level ${G.level+1}${next ? '. Next automation: '+AUTO[next].name+' at level '+autoReq(next) : ' for your next cash and flight-token reward'}.</p>
+    <div class="row spread"><span>${fmt(G.xp)} / ${fmt(xpNeed(G.level))} XP</span><span class="good">${fmt(G.flights)} flights</span></div>
+    <div class="bar"><i style="width:${clamp(G.xp/xpNeed(G.level)*100,0,100)}%"></i></div>
+    <button class="btn sm" data-act="tab" data-arg="auto">View automation →</button></section>`;
+}
+function departureHTML(){
+  const a = G.fleet.find(a => a.state === 'ready') || G.fleet[0];
+  if(!a) return '<section class="card"><h3>Departures</h3><p>Your first aircraft is waiting.</p><button class="btn pri" data-act="tab" data-arg="fleet">Buy aircraft</button></section>';
+  const t = TYPES[a.type], e = a.route ? estimate(t,a.route,acOnRoute(a.route)) : null;
+  return `<section class="card departure"><div class="eyebrow">DEPARTURES</div>
+    <div class="row spread"><b>${escHTML(G.brand.code)}-${a.id}</b><span class="tag ${a.state === 'ready' ? 'on' : ''}">${stateLabel(a)}</span></div>
+    <h3 class="route-title">${G.brand.hub} → ${a.route || '—'}</h3>
+    <p>${a.route ? AP[a.route].city : 'Choose a destination'}<br><span class="muted">${t.name} · Stand ${G.fleet.indexOf(a)+1}</span></p>
+    ${e ? `<div class="inset"><span>${t.seats} seats · ~${Math.round(e.lf*100)}% load</span><br>Fuel: ${fmt(tripFuel(t,a.route))} units<br><b class="${e.profit >= 0 ? 'good' : 'bad'}">~${money(e.profit)} / flight</b></div>` : ''}
+    ${a.state === 'ready' ? `<button class="btn pri" data-act="dispatch" data-arg="${a.id}">Dispatch ${escHTML(G.brand.code)}-${a.id}</button>` : ''}
+    <button class="btn" data-act="openFlightRoute" data-arg="${a.id}">View route →</button></section>`;
+}
+function inspectorHTML(){
+  if(!sel && mode === 'sel') return '';
+  return `<div class="inspector"><div class="row spread"><b>${view === 'term' ? 'TERMINAL' : 'AIRSIDE'} · ${mode === 'sel' ? 'DETAILS' : 'BUILD'}</b><button class="btn sm" data-act="mode" data-arg="sel" aria-label="Close inspector">×</button></div>${panelHTML()}</div>`;
+}
+function routeAssignmentHTML(){
+  const a = G.fleet.find(a => a.id === routeAircraft) || G.fleet[0];
+  if(!a) return '';
+  const t = TYPES[a.type], e = a.route ? estimate(t,a.route,acOnRoute(a.route)) : null;
+  const busy = !['ready','noroute','nofuel','notaxi','shortrwy','hold'].includes(a.state);
+  const options = Object.keys(G.routes).filter(c => routeDist(c) <= t.range && tripFuel(t,c) <= tankCap());
+  return `<section class="card assignment"><h3>Ready for takeoff?</h3><label for="route-aircraft">AIRCRAFT</label>
+    <select id="route-aircraft" data-in="routeAircraft">${G.fleet.map(z => `<option value="${z.id}" ${z.id === a.id ? 'selected' : ''}>${escHTML(G.brand.code)}-${z.id} · ${TYPES[z.type].name}</option>`).join('')}</select>
+    <p class="good" data-bind="ac:${a.id}:cond"></p><label for="route-destination">DESTINATION</label>
+    <select id="route-destination" data-in="route" data-arg="${a.id}" ${busy ? 'disabled' : ''}><option value="">Choose a route</option>${options.map(c => `<option value="${c}" ${a.route === c ? 'selected' : ''}>${c} · ${AP[c].city}</option>`).join('')}</select>
+    <h3 class="route-title">${G.brand.hub} → ${a.route || '—'}</h3>
+    <div class="inset">${t.seats} seats · ${fmt(t.range)} km range<br>${a.route ? fmt(Math.round(routeDist(a.route)))+' km · '+fmt(tripFuel(t,a.route))+' fuel units' : 'Open a destination below to add a route.'}</div>
+    ${e ? `<p class="row spread">Estimated net income <b class="${e.profit >= 0 ? 'good' : 'bad'}">${money(e.profit)}</b></p>` : ''}
+    <button class="btn pri" data-act="dispatch" data-arg="${a.id}" data-dispatch-id="${a.id}" ${a.state !== 'ready' || !a.route ? 'disabled' : ''}>Dispatch flight</button>
+    <p class="muted" data-bind="ac:${a.id}:st"></p><p class="muted small">Fuel is used at departure. Income and XP arrive when the flight returns.</p></section>`;
+}
 
 function buildNav(){
   $('#nav').innerHTML = TABS.map(([id, l, ic]) => '<button data-act="tab" data-arg="' + id + '" class="' +
-    (id === tab ? 'on' : '') + '" title="' + l + '">' + ic + '<span>' + l + '</span></button>').join('');
+    (id === tab ? 'on' : '') + '" aria-pressed="' + (id === tab) + '" title="' + l + '">' + ic + '<span>' + l + '</span></button>').join('') +
+    '<button class="more-tab" data-act="more" aria-expanded="' + moreNav + '">More</button>';
+  $('#nav').classList.toggle('expanded', moreNav);
   $('#speed').innerHTML = SPEEDS.map(([v, l, t]) => '<button class="spd ' + (v === speed ? 'on' : '') +
-    '" data-act="speed" data-arg="' + v + '" title="' + t + '" aria-label="' + t + '">' + l + '</button>').join('');
+    '" data-act="speed" data-arg="' + v + '" aria-pressed="' + (v === speed) + '" title="' + t + '" aria-label="' + t + '">' + l + '</button>').join('');
 }
 // The airport is the game, so it stays on screen and every other section opens beside it in a drawer.
 function build(){
@@ -776,7 +829,7 @@ function bRoutes(){
         <td>${money(fare(a.c))}</td><td>${acOnRoute(a.c) || '–'}</td>
         <td>${open ? '<span class="tag on">Open</span>' : `<button class="btn sm pri" data-act="openRoute" data-arg="${a.c}" data-cost="${routeCost(a.c)}">Open · ${money(routeCost(a.c))}</button>`}</td></tr>`;
     }).join('');
-  return `<div class="card"><h3>Route network</h3>
+  return routeAssignmentHTML() + `<div class="card"><h3>Route network</h3>
     <p class="muted">Longer routes pay more per flight but burn more fuel and need aircraft with enough range. Several aircraft on one route dilute demand — spread out.</p>
     <div style="overflow-x:auto"><table><tr><th>Destination</th><th>Distance</th><th>Demand</th><th>Base fare</th><th>Aircraft</th><th></th></tr>${rows}</table></div></div>`;
 }
@@ -880,7 +933,6 @@ const inHall = (gx, gy) => gy >= HALL0 && gy <= HALL1 && open(gx, gy);
 const inAir = (gx, gy) => gy >= AIR && gy < GH && open(gx, gy);
 let sel = null, mode = 'sel';
 let ptrs = new Map(), pinch = null, wheelAcc = 0;             // live pointers, for pinch-to-zoom
-let panelSide = 'right';                                      // which half the floating plot card sits in
 let floats = [], pax = [], drag = null, paint = null;
 function showResult(title, rows, flavour){
   const m = $('#modal'); if(!m) return;
@@ -1377,10 +1429,10 @@ function plinth(x, gx, gy, w, d, p){
   poly(x, [isoRaw(a+W,b,0), isoRaw(a+W,b+D,0), isoRaw(a+W,b+D,-p), isoRaw(a+W,b,-p)], '#1b2537', 'rgba(0,0,0,.55)');
   poly(x, [isoRaw(a,b+D,0), isoRaw(a+W,b+D,0), isoRaw(a+W,b+D,-p), isoRaw(a,b+D,-p)], '#121a29', 'rgba(0,0,0,.55)');
 }
-function box(x, gx, gy, w, d, h, top, left, right){
+function box(x, gx, gy, w, d, h, top, left, right, base = 0){
   const [a, b, W, D] = vrect(gx, gy, w, d);
-  poly(x, [isoRaw(a+W,b,0), isoRaw(a+W,b+D,0), isoRaw(a+W,b+D,h), isoRaw(a+W,b,h)], right, 'rgba(0,0,0,.4)');
-  poly(x, [isoRaw(a,b+D,0), isoRaw(a+W,b+D,0), isoRaw(a+W,b+D,h), isoRaw(a,b+D,h)], left, 'rgba(0,0,0,.4)');
+  poly(x, [isoRaw(a+W,b,base), isoRaw(a+W,b+D,base), isoRaw(a+W,b+D,h), isoRaw(a+W,b,h)], right, 'rgba(0,0,0,.4)');
+  poly(x, [isoRaw(a,b+D,base), isoRaw(a+W,b+D,base), isoRaw(a+W,b+D,h), isoRaw(a,b+D,h)], left, 'rgba(0,0,0,.4)');
   poly(x, [isoRaw(a,b,h), isoRaw(a+W,b,h), isoRaw(a+W,b+D,h), isoRaw(a,b+D,h)], top, 'rgba(0,0,0,.3)');
 }
 
@@ -1409,10 +1461,9 @@ function drawPerson(x, gx, gy, p, night){
                                                                            // and not for people stacked in a queue
     x.font = 'bold ' + Math.round(8*s) + 'px system-ui'; x.textAlign = 'center';
     const w = x.measureText(p.nm).width + 7*s, ty = by - 20.5*s;
-    x.fillStyle = 'rgba(12,20,36,.78)';
-    if(x.roundRect){ x.beginPath(); x.roundRect(bx - w/2, ty - 7*s, w, 10*s, 4*s); x.fill(); }
-    else x.fillRect(bx - w/2, ty - 7*s, w, 10*s);   // roundRect is recent; never let it break the frame
-    x.fillStyle = '#dbe6f6'; x.fillText(p.nm, bx, ty + 0.8*s);
+    x.fillStyle = '#fff5d9';
+    x.fillRect(bx - w/2, ty - 7*s, w, 10*s);
+    x.fillStyle = '#20364b'; x.fillText(p.nm, bx, ty + 0.8*s);
   }
   if(p.em && p.et > 0){                                                    // emote bubble
     const T = {happy:['♥','#ff8fb0'], buy:['$','#ffd166'], wait:['…','#cbd6e8'], angry:['!','#ff6b6b']}[p.em];
@@ -1449,7 +1500,7 @@ function drawFacility(x, gx, gy, f, night){
     case 'arch':
       box(x, gx+.08, gy+.28, .14, .44, 27*s, '#cfd6e2', '#b4bdcc', '#8e97a8');
       box(x, gx+.78, gy+.28, .14, .44, 27*s, '#cfd6e2', '#b4bdcc', '#8e97a8');
-      box(x, gx+.08, gy+.28, .84, .44, 33*s, lt, md, dk);                                 // lintel
+      box(x, gx+.08, gy+.28, .84, .44, 33*s, lt, md, dk, 27*s);                         // open arch below the lintel
       h = 33*s; break;
     case 'table':
       box(x, gx+.38, gy+.38, .24, .24, 7*s, '#8a6a4a', '#7a5c3f', '#5e4530');              // pedestal
@@ -1510,7 +1561,7 @@ function drawFacility(x, gx, gy, f, night){
 
 function drawPlane(x, wx, wy, t, col, rot0, z){
   const rot = rot0 + turn*Math.PI/2;
-  const w = WP(), L = 14 + t*3.2, S = 16 + Math.round(t*3.4), fw = t > 4 ? 7 : 5, k = TW()/(2*w);
+  const w = WP(), L = 14 + t*3.2, S = 16 + Math.round(t*3.4), fw = t > 4 ? 7 : 5, k = TW()/(2*w)*(t === 0 ? 1.5 : 1.15);
   const [X, Y] = iso(wx, wy);
   const wz = Math.max(2, Math.round(1.2*k)), bh = Math.max(3, Math.round((2 + t*0.55)*k));
   const hull = () => { x.fillRect(-fw/2, -L/2+1, fw, L-1); x.fillRect(-fw/2+1, -L/2, fw-2, 1); };
@@ -1559,9 +1610,22 @@ function drawBuilding(x, gx, gy, id, lvl, night){
 }
 function drawTree(x, gx, gy){
   const s = TW()/44, [X, Y] = iso(gx+.5, gy+.5);
-  x.fillStyle = '#6b4a2b'; x.fillRect(X-1.4*s, Y-6*s, 2.8*s, 7*s);
-  poly(x, [[X, Y-26*s], [X+10*s, Y-15*s], [X, Y-5*s], [X-10*s, Y-15*s]], '#2f8a3c', 'rgba(0,0,0,.3)');
-  poly(x, [[X, Y-26*s], [X+7*s, Y-18*s], [X, Y-12*s], [X-7*s, Y-18*s]], '#43a64f');
+  x.fillStyle = '#20364b'; x.fillRect(X-2*s,Y-8*s,4*s,10*s);
+  x.fillStyle = '#377454'; x.fillRect(X-8*s,Y-24*s,16*s,18*s); x.fillRect(X-4*s,Y-28*s,10*s,6*s);
+  x.fillStyle = '#5a9255'; x.fillRect(X-8*s,Y-24*s,8*s,13*s);
+  x.fillStyle = '#a0cd7a'; x.fillRect(X-4*s,Y-28*s,6*s,5*s);
+}
+function drawTerminalExterior(x){
+  const s=TW()/44, w=hallW()-2, gy=AIR-7, h=(18+nFloors()*6)*s;
+  box(x,1,gy,w,6,h,'#fff5d9','#f0e3bb','#c7ba97');
+  box(x,.85,gy-.15,w+.3,6.3,h+5*s,'#3279b8','#245785','#20364b',h);
+  tile(x,2,gy+.4,w-2,4.8,'#5eabd0','#cee8f1',h+5.2*s);
+  for(let gx=1.3;gx<hallW()-1;gx+=1.2){
+    box(x,gx,AIR-.95,.7,.08,h*.65,'#cee8f1','#3279b8','#245785',5*s);
+  }
+  const [X,Y]=iso(hallW()/2,gy+3,h+6*s);
+  x.font=`bold ${Math.max(9,Math.round(13*s))}px monospace`; x.textAlign='center';x.fillStyle='#fff5d9';
+  x.fillText('AIRWARD · '+nFloors()+'F',X,Y);
 }
 
 function drawFlying(x, a, i, col){
@@ -1604,28 +1668,16 @@ function gameClock(){
     mm: P ? P.mm : String(Math.floor(mins%60/10)*10).padStart(2,'0')};
 }
 function drawHUD(x){
-  const C = gameClock();
-  x.fillStyle = '#2a2d6e'; x.fillRect(0, 0, CW, HUD);
-  x.fillStyle = '#4448a8'; x.fillRect(0, 0, CW, 3);
-  x.fillStyle = '#1b1d50'; x.fillRect(0, HUD-3, CW, 3);
-  x.textAlign = 'left'; x.font = 'bold 15px monospace'; x.fillStyle = '#ffd166';
-  x.fillText(`${C.yr}yr`, 12, 21);
-  x.fillStyle = '#fff'; x.font = 'bold 13px monospace';
-  x.fillText(`${C.mo}mo ${C.dy}d`, 52, 21);
-  x.fillStyle = '#9fb6e8'; x.fillText(`${C.hh}:${C.mm}`, 126, 21);
-  if(speed !== 1){
-    x.fillStyle = speed ? '#4be3a3' : '#ffd166';
-    x.fillText(speed ? speed + '×' : 'PAUSED', 400, 21);
-  }
-  x.fillStyle = '#0e1030'; x.fillRect(CW-212, 5, 204, HUD-10);
-  x.textAlign = 'right'; x.fillStyle = '#ffe36b'; x.font = 'bold 15px monospace';
-  x.fillText(money(G.cash) + 'G', CW-14, 21);
-  x.textAlign = 'left'; x.fillStyle = '#8ec5ff'; x.font = 'bold 12px monospace';
-  x.fillText(`\u{1F464} ${pax.length}`, 188, 21);
-  x.fillStyle = paxHappy() > 60 ? '#4be3a3' : paxHappy() > 35 ? '#ffd166' : '#ff7b7b';
-  x.fillText(`♥ ${Math.round(paxHappy())}%`, 248, 21);
-  x.fillStyle = '#cbd6e8'; x.fillText(`✈ ${fmt(G.flights)}`, 318, 21);
+  const mobile = window.innerWidth <= 760, inset = mobile ? CW/6+8 : 10;
+  x.fillStyle = '#fff5d9'; x.fillRect(0,0,CW,HUD);
+  x.fillStyle = '#20364b'; x.fillRect(0,HUD-2,CW,2);
+  x.font = 'bold 11px monospace'; x.textAlign = 'left';
+  x.fillText(G.brand.hub + ' · ' + (view === 'term' ? 'TERMINAL '+(floor+1)+'F' : 'HOME AIRPORT'), inset,19);
+  if(!mobile) x.fillText(G.stands.length+' STANDS · '+G.fleet.length+' PLANES', 215,19);
+  x.textAlign = 'right';
+  x.fillText(speed ? Math.round(paxHappy())+'% MOOD' : 'PAUSED',CW-inset,19);
 }
+
 
 
 /* --- main render --- */
@@ -1641,7 +1693,7 @@ function drawScene(dt){
   const night = nightNow(), col = G.brand.color;
   const RS = runways(), s = TW()/44, T = view === 'term';
   const painting = mode !== 'sel' && mode !== 'del';
-  x.fillStyle = T ? '#1d2a3f' : '#2d6b35'; x.fillRect(0, 0, CW, CH);
+  x.fillStyle = T ? '#83bb69' : '#83bb69'; x.fillRect(0, 0, CW, CH);
 
   const LI = landInfo(), SALE = buyableLand();
   const gx1 = Math.min(GW-1, LI.x1 + BS);
@@ -1659,17 +1711,17 @@ function drawScene(dt){
     if(sx < -TW() || sx > CW + TW() || sy < -TH()*4 || sy > CH + TH()*6) continue;   // cull offscreen
     const ch = (gx+gy) & 1;
     if(!open(gx, gy)){
-      if(SALE.has(bIdx(gx, gy))) tile(x, gx, gy, 1, 1, ch ? '#2b5f33' : '#27582f', ch ? '#2b5f33' : '#27582f');
+      if(SALE.has(bIdx(gx, gy))) tile(x, gx, gy, 1, 1, ch ? '#79aa61' : '#75a65e', ch ? '#79aa61' : '#75a65e');
       continue;
     }
     let f;
     if(gy === 0) f = ch ? '#6cc15a' : '#62b650';
     else if(gy === 1) f = ch ? '#d9d0b4' : '#cdc4a8';
-    else if(gy <= HALL1) f = ch ? '#efe6d8' : '#e7ddcd';                  // terminal floor
+    else if(gy <= HALL1) f = ch ? '#fff5d9' : '#f0e3bb';                  // terminal floor
     else {
       const t = tType(gx, gy);
       f = t === 'run' ? (ch ? '#3d424a' : '#363b42') : t === 'taxi' ? (ch ? '#767c87' : '#6e747f')
-        : standIdxAt(gx, gy) >= 0 ? (ch ? '#9aa0ab' : '#929aa3') : (ch ? '#5aa84a' : '#52a043');
+        : standIdxAt(gx, gy) >= 0 ? (ch ? '#9aa0ab' : '#929aa3') : (ch ? '#a0cd7a' : '#83bb69');
     }
     tile(x, gx, gy, 1, 1, f, f);
     if(painting){
@@ -1751,6 +1803,11 @@ function drawScene(dt){
     }
     for(const p of pax) if(p.fl === floor) items.push({d:depth(p.x, p.y) + 0.4, fn:() => drawPerson(x, p.x, p.y, p, night)});
   } else {
+    items.push({d:depth(hallW()/2,AIR-4),fn:()=>drawTerminalExterior(x)});
+    for(let gy=AIR;gy<=LI.y1;gy+=3) for(const gx of [0,LI.x1]){
+      if(open(gx,gy) && !tType(gx,gy) && standIdxAt(gx,gy)<0)
+        items.push({d:depth(gx,gy),fn:()=>drawTree(x,gx,gy)});
+    }
     for(let i = 0; i < G.stands.length; i++){
       const a = G.fleet[i], ctr = standCtr(i);
       if(!a || !ctr) continue;
@@ -1849,8 +1906,10 @@ function sceneClick(e){
   if(py < HUD || mode !== 'sel') return;                      // build tools act on press, not click
   if(drag && drag.moved) return;
   const [gx, gy] = pick(px, py);
+  if(view === 'air' && gx >= 1 && gx < hallW()-1 && gy >= AIR-7 && gy < AIR){
+    setView('term'); sel = null; tab = 'airport'; build(); return;
+  }
   sel = null;
-  panelSide = px > CW/2 ? 'left' : 'right';                  // keep the thing you tapped in view
   for(const dy of [30, 22, 14, 6, 0]){                       // tall things: also test the tile behind
     const [bx, by] = pick(px, py+dy);
     if(!isPlot(bx, by)) continue;
@@ -1960,8 +2019,7 @@ const MODE_GROUPS = [
 ];
 const modeLabel = m => { const e = MODE_GROUPS.flatMap(g => g[1]).find(z => z[0] === m); return e && e[1] ? e[1] : FAC[m].icon + ' ' + FAC[m].name; };
 const MODES = MODE_GROUPS.flatMap(g => g[1]).map(z => [z[0], modeLabel(z[0])]);
-// Both the view controls and the build tools float on the scene, so the map never scrolls out of
-// reach of the thing you are building with. Only the half you are looking at offers its tools.
+// Controls sit outside the playable canvas so they cannot hide a construction tile.
 function sceneCtlHTML(){
   const b = (act, arg, label, on, title, cls) => '<button class="btn sm ' + (on ? 'pri ' : '') + (cls || '') +
     '" data-act="' + act + '"' + (arg == null ? '' : ' data-arg="' + arg + '"') +
@@ -1977,7 +2035,7 @@ function sceneCtlHTML(){
     g += '<div class="ctlgrp">' + fb + '</div>';
   }
   return g + '<div class="ctlgrp">' + b('turn', null, '⟳', false, 'Rotate the airport') +
-    b('zoom', null, '🔍', false, ['Close', 'Wide', 'Whole map'][zoom]) +
+    b('zoomStep', 1, '−', false, 'Zoom out') + b('zoomStep', -1, '+', false, 'Zoom in') +
     b('centre', null, '⌖', false, 'Centre the view') + '</div>' +
     '<div class="ctlgrp">' + DAYKEYS.map(k => b('light', k, k === 'auto' ? '⏱' : DAYLIGHT[k].icon,
       daylight === k, k === 'auto' ? 'Follow the clock' : DAYLIGHT[k].name, 'lt')).join('') + '</div>';
@@ -2050,6 +2108,17 @@ function modeHelp(){
 function panelHTML(){
   ensureAirport();
   const s = sel;
+  if(FAC[mode]){
+    const D = FAC[mode];
+    return `<div class="card"><h3>${D.name}</h3><p>${D.desc}</p>
+      <div class="inset"><div class="row spread"><span>Footprint</span><b>1 × 1 tile</b></div>
+      <div class="row spread"><span>Build cost</span><b>${money(D.cost)}</b></div>
+      <div class="row spread"><span>Cash after</span><b class="${G.cash < D.cost ? 'bad' : ''}">${money(G.cash-D.cost)}</b></div>
+      <div class="row spread"><span>${D.passive ? 'Reach' : 'Service time'}</span><b>${D.passive ? D.aura+' tiles' : D.dwell+' s'}</b></div></div>
+      <span class="tag ${G.cash >= D.cost ? 'on' : ''}">${G.cash >= D.cost ? '✓ Funds available' : '× Not enough cash'}</span>
+      <p class="muted small">Tap an empty tile on ${floor+1}F to purchase. Drag to build several. Each successful placement deducts the cost.</p>
+      <button class="btn" data-act="mode" data-arg="sel">Cancel building</button></div>`;
+  }
   if(mode !== 'sel') return `<div class="card"><h3>${MODES.find(m => m[0]===mode)[1]}</h3>${modeHelp()}</div>`;
   if(s && s.land != null){
     const c = landCost(s.land), bx = s.land % BW + 1, by = (s.land/BW|0) + 1;
@@ -2100,16 +2169,12 @@ function panelHTML(){
     <p class="muted small" style="margin-top:10px">Rebuild clears every stand, taxiway and runway and lays the standard layout for your fleet. You pay full price for the new tiles and the old ones are not refunded; your terminal interior is untouched.</p>
     <div class="row"><button class="btn danger" data-act="reseed">\u{1F3D7}️ Rebuild airside layout</button></div></div>`;
 }
-// Anything you tap on the map gets its card floating over the scene, on the side away from what
-// you tapped, rather than below the fold. The card under the scene keeps the airport summary.
-const floatPanel = s => !!s;
-const overHTML = () => floatPanel(sel)
-  ? `<div class="aover ${panelSide}">${panelHTML()}<button class="btn sm aoverx" data-act="unsel" title="Close">✕</button></div>` : '';
-function belowHTML(){                                           // the card below keeps showing the airport summary
-  const s = sel;
-  if(floatPanel(s)) sel = null;
+// The expansion summary stays independent of the selected object.
+function belowHTML(){
+  const s = sel, m = mode;
+  sel = null; mode = 'sel';
   const h = panelHTML();
-  sel = s;
+  sel = s; mode = m;
   return h;
 }
 const BLOCKED = ['grounded','nofuel','noroute','notaxi','shortrwy'];
@@ -2138,17 +2203,20 @@ function boardHTML(){
     '<table class="board">' + rows + '</table></div>';
 }
 function renderPanel(){
-  const over = $('#aover'), p = $('#apanel');
-  if(over) over.innerHTML = overHTML();
-  if(p) p.innerHTML = belowHTML();
+  if(tab !== 'airport'){ tab = 'airport'; build(); return; }
+  const p = $('#apanel');
+  if(p) p.innerHTML = inspectorHTML();
   updateUI();
 }
 function stageHTML(){
-  return `<div class="card pix"><canvas id="scene" width="${CW}" height="${CH}"></canvas>
+  return `<div class="airport-layout"><div class="airport-world"><div class="card pix">
   <div class="scenectl">${sceneCtlHTML()}</div>
-  <div class="dock${mode === 'sel' ? '' : ' armed'}">${dockHTML()}</div>
-  <div id="aover">${overHTML()}</div></div>` +
-  (tab === 'airport' ? `<div id="apanel">${belowHTML()}</div>${boardHTML()}` : '');
+  <div class="scene-window"><canvas id="scene" width="${CW}" height="${CH}" aria-label="${view === 'term' ? 'Terminal floor '+(floor+1) : 'Airside'} airport map. Drag to pan; choose a build tool to construct."></canvas></div>
+  <div class="map-caption">${G.brand.hub} · ${view === 'term' ? 'TERMINAL / '+(floor+1)+'F' : 'HOME AIRPORT'}<span>Drag to explore · pinch to zoom</span></div></div>
+  <details class="build-menu" ${buildOpen ? 'open' : ''}><summary>+ Build airport <span>${mode === 'sel' ? 'Choose a tool' : modeLabel(mode)}</span></summary>
+  <div class="dock${mode === 'sel' ? '' : ' armed'}">${dockHTML()}</div><p class="build-hint">${dockNote()} · Esc to cancel</p></details></div>
+  ${tab === 'airport' ? `<aside class="airport-side"><div id="apanel">${inspectorHTML()}</div><div data-html="objective"></div><div data-html="departure"></div></aside>` : ''}</div>` +
+  (tab === 'airport' ? `<details class="airport-details"><summary>Airport operations & expansion</summary>${belowHTML()}${boardHTML()}</details>` : '');
 }
 
 function bFuel(){
@@ -2187,14 +2255,14 @@ function bAuto(){
       if(id==='expand') ctl = slider('Keep reserve (× cost)', 'aexpand', 0, 3, 0.25, s.reserve, v=>v+'×');
     }
     return `<div class="card ${unlocked?'':'lock'}"><div class="row spread"><h3>${A.icon} ${A.name}</h3>
-      ${unlocked ? `<div class="switch ${s.on?'on':''}" data-act="toggleAuto" data-arg="${id}"></div>` : `<span class="tag">🔒 Level ${autoReq(id)}</span>`}</div>
+      ${unlocked ? `<button class="switch ${s.on?'on':''}" role="switch" aria-checked="${s.on}" aria-label="${A.name}" data-act="toggleAuto" data-arg="${id}"></button>` : `<span class="tag">🔒 Level ${autoReq(id)}</span>`}</div>
       <p class="muted">${A.desc}</p>${ctl}</div>`;
   }).join('');
   return `<p class="muted">Automations unlock as your airline levels up. After your first IPO they stay unlocked permanently.</p><div class="grid g2">${cards}</div>`;
 }
 function slider(label, key, min, max, step, val, f){
   return `<div class="field"><label>${label} <b id="lbl-${key}">${f(val)}</b></label>
-    <input type="range" min="${min}" max="${max}" step="${step}" value="${val}" data-in="${key}"></div>`;
+    <input aria-label="${label}" type="range" min="${min}" max="${max}" step="${step}" value="${val}" data-in="${key}"></div>`;
 }
 
 function ipoGain(){ return Math.floor(Math.sqrt(G.lifetime/250000)); }
@@ -2202,7 +2270,7 @@ function bCompany(){
   const canIPO = G.level >= 10 && ipoGain() >= 1;
   return `<div class="grid g2">
   <div class="card"><h3>🎨 Brand</h3>
-    <div class="field"><label>Airline name</label><input type="text" id="nameIn" maxlength="24" value="${G.brand.name}" data-in="name"></div>
+    <div class="field"><label>Airline name</label><input type="text" id="nameIn" maxlength="24" value="${escHTML(G.brand.name)}" data-in="name"></div>
     <div class="field"><label>Livery colour</label><div class="swatches">${COLORS.map(c=>`<div class="sw ${c===G.brand.color?'on':''}" style="background:${c}" data-act="color" data-arg="${c}"></div>`).join('')}</div></div>
     <p class="muted">Hub: ${hubAp().city} (${G.brand.hub}) · Code ${G.brand.code}</p></div>
   <div class="card"><h3>📈 Go public (IPO)</h3>
@@ -2230,11 +2298,11 @@ function drawMap(){
   const {x, W, H} = fit(c);
   const P = a => [(a.lon+180)/360*W, (78-a.lat)/140*H];
   x.clearRect(0,0,W,H);
-  x.fillStyle='#0f2442'; x.fillRect(0,0,W,H);
-  x.strokeStyle='#17304f'; x.lineWidth=1;
+  x.fillStyle='#cee8f1'; x.fillRect(0,0,W,H);
+  x.strokeStyle='#b3d3db'; x.lineWidth=1;
   for(let i=1;i<12;i++){ x.beginPath(); x.moveTo(W*i/12,0); x.lineTo(W*i/12,H); x.stroke(); }
   for(let i=1;i<6;i++){ x.beginPath(); x.moveTo(0,H*i/6); x.lineTo(W,H*i/6); x.stroke(); }
-  x.fillStyle='#24456f'; x.strokeStyle='#3b6396'; x.lineWidth=1;
+  x.fillStyle='#a0cd7a'; x.strokeStyle='#347a52'; x.lineWidth=1;
   for(const poly of LAND){
     x.beginPath();
     poly.forEach(([lo,la],i) => { const px=(lo+180)/360*W, py=(78-la)/140*H; i?x.lineTo(px,py):x.moveTo(px,py); });
@@ -2251,7 +2319,7 @@ function drawMap(){
     }
     x.fillStyle = open ? '#fff' : '#3a4d70';
     x.beginPath(); x.arc(p[0],p[1],open?3.5:2.2,0,7); x.fill();
-    if(open){ x.fillStyle='#b9c8e6'; x.font='10px system-ui'; x.fillText(a.c,p[0]+5,p[1]-5); }
+    if(open){ x.fillStyle='#20364b'; x.font='10px system-ui'; x.fillText(a.c,p[0]+5,p[1]-5); }
   }
   x.fillStyle = col; x.beginPath(); x.arc(hub[0],hub[1],7,0,7); x.fill();
   x.strokeStyle='#fff'; x.lineWidth=2; x.beginPath(); x.arc(hub[0],hub[1],11,0,7); x.stroke();
@@ -2279,7 +2347,10 @@ function drawSpark(){
 
 /* ---------- events ---------- */
 const ACT = {
-  tab: a => { tab = a === tab && a !== 'airport' ? 'airport' : a; build(); },   // the rail toggles its own drawer
+  tab: a => { tab = a === tab && a !== 'airport' ? 'airport' : a; moreNav = false; build(); },
+  more: () => { moreNav = !moreNav; buildNav(); },
+  zoomStep: a => { zoomAt(+a, CW/2, (CH+HUD)/2); },
+  openFlightRoute: a => { routeAircraft = +a; tab = 'routes'; build(); },
   speed: a => { speed = +a; buildNav(); },
   buy: a => { if(buyAircraft(+a)) build(); },
   dispatch: a => { const ac = G.fleet.find(z=>z.id==a); if(ac && ac.state==='ready') tryDepart(ac); },
@@ -2287,7 +2358,7 @@ const ACT = {
   dispatchAll: () => G.fleet.forEach(ac => { if(ac.state==='ready') tryDepart(ac); }),
   checkAll: () => G.fleet.forEach(ac => { if(['ready','grounded'].includes(ac.state) && ac.cond<95) startCheck(ac); }),
   sell: a => { const i = G.fleet.findIndex(z=>z.id==a); if(i<0 || G.fleet[i].state==='flying') return; G.cash += sellValue(G.fleet[i]); G.fleet.splice(i,1); sel = null; build(); },
-  mode: a => { mode = a; sel = null; if(FAC[a]) setView('term'); else if(a === 'stand' || a === 'taxi' || a === 'run') setView('air'); build(); },
+  mode: a => { mode = a; sel = null; tab = 'airport'; if(FAC[a]) setView('term'); else if(a === 'stand' || a === 'taxi' || a === 'run') setView('air'); build(); },
   view: a => { setView(a); sel = null; build(); },
   light: a => { daylight = a; build(); },
   floor: a => { floor = clamp(+a, 0, nFloors()-1); sel = null; build(); },
@@ -2326,6 +2397,7 @@ Every stand, taxiway and runway you have built is removed. The old tiles are not
   },
 };
 const INP = {
+  routeAircraft: el => { routeAircraft = +el.value; dirty = true; },
   ticket: el => { G.ticket = el.value/100; },
   route: (el, id) => { const a = G.fleet.find(z=>z.id==id); if(a){ a.route = el.value || null; if(a.state==='noroute' && a.route) a.state='ready'; } },
   name: el => { G.brand.name = el.value.trim() || 'SkyIdle Air'; },
@@ -2363,14 +2435,18 @@ document.addEventListener('input', e => {
   INP[t.dataset.in](t, t.dataset.arg);
 });
 document.addEventListener('change', e => {
-  const t = e.target.closest('[data-in]'); if(t && t.dataset.in==='route') dirty = true;
+  const t = e.target.closest('[data-in]');
+  if(t && ['route','routeAircraft'].includes(t.dataset.in)){ dirty = false; build(); }
+});
+document.addEventListener('toggle', e => { if(e.target.classList?.contains('build-menu')) buildOpen = e.target.open; }, true);
+document.addEventListener('keydown', e => {
+  if(!G || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+  if(e.key === 'Escape'){ mode = 'sel'; sel = null; tab = 'airport'; build(); }
 });
 
 /* ---------- boot ---------- */
 function applyBrand(){
-  document.documentElement.style.setProperty('--brand', G.brand.color);
-  $('#logo').innerHTML = logoSVG(G.brand.color, G.brand.code);
-  document.title = `${G.brand.name} — SkyIdle`;
+  document.title = `${G.brand.name} — Airward`;
 }
 function showSetup(){
   const m = $('#modal'); m.hidden = false;

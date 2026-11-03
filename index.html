@@ -3,17 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>SkyIdle — Airline Tycoon</title>
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<title>Airward — Airline Tycoon</title>
+<link rel="stylesheet" href="assets/fonts.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div id="app" hidden>
   <header>
     <div class="brandbox">
-      <div id="logo"></div>
-      <div><b data-bind="bname"></b><small data-bind="btag"></small></div>
+      <img src="assets/airward-mark.svg" width="42" height="30" alt="">
+      <b class="wordmark">AIRWARD</b><small>AIRLINE TYCOON</small>
     </div>
     <div class="stats">
       <div class="stat">
@@ -45,13 +44,14 @@
         <small data-bind="toknote"></small>
       </div>
     </div>
-    <div id="speed" class="seg"></div>
+    <div class="time-controls"><span data-bind="clock"></span><div id="speed" class="seg"></div></div>
   </header>
+  <nav id="nav" aria-label="Game sections"></nav>
   <div class="shell">
-    <nav id="nav"></nav>
     <main id="stage"></main>
     <aside id="drawer" hidden></aside>
   </div>
+  <footer><span data-bind="bname"></span><span data-bind="btag"></span><button data-act="saveNow">Save game</button></footer>
 </div>
 <div id="modal" hidden></div>
 <div id="toasts"></div>
